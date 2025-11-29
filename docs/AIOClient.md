@@ -2,6 +2,7 @@
 
 AIOClient is the non-authenticated client for interacting the Adventures In Odyssey API.
 
+Example:
 ```python
 from adventuresinodyssey import AIOClient
 
