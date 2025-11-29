@@ -7,12 +7,12 @@ Login example:
 ```python
 from adventuresinodyssey import ClubClient
 
-email="example@example.com"
-password="example_password"
+email="example@example.com" # Required
+password="example_password" # Required
 
-viewer_id="a3J4W000003HSj6UAG" # if using a viewer id, profile_username is ignored
-profile_username="name_of_a_profile_username" # name of a user profile, if not provided will pick the first profile with no pin
-pin=1234 # use if the profile has a pin enabled
+viewer_id="a3J4W000003HSj6UAG" # Optional. If using a viewer id, profile_username is ignored
+profile_username="name_of_a_profile_username" # Optional. Name of a user profile, if not provided will pick the first profile with no pin
+pin=1234 # Optional. Use if the profile has a pin enabled
 
 
 print("Logging in")
