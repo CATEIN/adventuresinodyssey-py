@@ -1,0 +1,774 @@
+"""
+Adventures in Odyssey API Authentication Client
+"""
+
+import logging
+from typing import Optional, Dict, Any, List
+from urllib.parse import urlencode, urlparse, parse_qs
+import requests
+from playwright.sync_api import sync_playwright, Page, TimeoutError as PlaywrightTimeout
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Define the common API prefix to be used for the new generalized methods
+API_PREFIX = 'apexrest/v1/'
+
+
+class ClubClient:
+    """
+    Authentication client for Adventures in Odyssey API. 
+    Handles login, token management, and authenticated API requests.
+    """
+    
+    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None):
+        """
+        Initialize the AIO API client
+        
+        Args:
+            email: User's account email address (used for web login).
+            password: User's password.
+            viewer_id: Optional. The specific Viewer ID (profile) to use. If provided, profile_username is ignored.
+            profile_username: Optional. The username of the profile to select after account login. Required if viewer_id is not set.
+            pin: Optional. The PIN for the selected profile. Defaults to '0000' if not provided.
+        """
+        # User credentials
+        self.email = email
+        self.password = password
+        
+        # Identity parameters
+        self.viewer_id = viewer_id # User-provided ID, or None if derived from profile_username
+        self.profile_username = profile_username
+        self.pin = pin if pin is not None else "0000"
+        
+        # Session tokens
+        self._refresh_token: Optional[str] = None
+        self.session_token: Optional[str] = None
+        
+        # State tracking
+        self.logging_in = False
+        self.state = "loading"
+        
+        # Client configuration
+        self.config = {
+            'api_base': 'https://fotf.my.site.com/aio/services/', 
+            'redirect_url': 'https://app.adventuresinodyssey.com/callback',
+            'oauth_url': 'https://signin.auth.focusonthefamily.com',
+            'api_version': 'v1',
+            'client_id': '3MVG9l2zHsylwlpTFc1ZB3ryOQlpLYIqNo0UV4d0lBRjkbb6TXbw9UNhdcJfom2nnbB.AbNpkRbGoTfruF0gB',
+            'client_secret': 'B25FC7FE3E4C155E77C73EA2AC72D410E0762C897798816FC257F0C8FA3618AD'
+        }
+        
+        # Setup HTTP session
+        self.session = requests.Session()
+        self.session.headers.update({
+            'x-experience-name': 'Adventures In Odyssey',
+            # These are set temporarily/initially. Will be finalized in _select_profile_and_set_headers
+            'x-viewer-id': self.viewer_id if self.viewer_id else '',
+            'x-pin': self.pin
+        })
+    
+    def login(self) -> bool:
+        """
+        Login using Playwright to automate the OAuth flow and select the correct profile.
+        
+        Returns:
+            bool: True if login successful and profile selected, False otherwise
+        """
+        if self.logging_in:
+            logger.info("Login already in progress")
+            return False
+        
+        self.logging_in = True
+        self.state = "logging in"
+        logger.info("Starting OAuth login...")
+        
+        try:
+            # --- PHASE 1: OAuth Web Login (Get Session Token) ---
+            
+            auth_params = {
+                'response_type': 'code',
+                'client_id': self.config['client_id'],
+                'redirect_uri': self.config['redirect_url'],
+                'scope': 'api web refresh_token'
+            }
+            login_url = f"{self.config['api_base']}oauth2/authorize?{urlencode(auth_params)}"
+            
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.route("**/*.{png,jpg,jpeg}", lambda route: route.abort())
+                
+                logger.info("Navigating to login page...")
+                page.goto(login_url)
+                
+                # Fill login form
+                # Ensure the selector is correct and fields are visible
+                page.get_by_role("textbox", name="Email Address").wait_for(timeout=10000)
+                page.get_by_role("textbox", name="Email Address").fill(self.email) # Use self.email now
+                page.get_by_role("textbox", name="Password").fill(self.password)
+                
+                # Submit form and wait for navigation/redirect
+                logger.info("Submitting login form and waiting for redirect...")
+                with page.expect_navigation():
+                    page.click('button[type="submit"]')
+                
+                # Wait for the final redirect to the callback URL
+                page.wait_for_url(
+                    lambda url: url.startswith(self.config['redirect_url']),
+                    timeout=30000
+                )
+                callback_url = page.url
+                browser.close()
+            
+            # Exchange authorization code for tokens
+            parsed_url = urlparse(callback_url)
+            auth_code = parse_qs(parsed_url.query).get('code', [None])[0]
+            
+            if not auth_code:
+                raise ValueError("No authorization code ('code' parameter) in callback URL.")
+            
+            token_response = self._exchange_code_for_token(auth_code)
+            
+            # Store tokens and update session header
+            self._refresh_token = token_response.get('refresh_token')
+            self.session_token = token_response.get('access_token')
+            self.session.headers['Authorization'] = f"Bearer {self.session_token}"
+            
+            logger.info("Account login successful.")
+            
+            # --- PHASE 2: Profile Selection (Get Viewer ID) ---
+            if not self._select_profile_and_set_headers():
+                self.state = "profile selection failed"
+                self.session_token = None
+                self._refresh_token = None
+                self.logging_in = False
+                return False
+                
+            self.logging_in = False
+            self.state = "ready"
+            logger.info("Login and profile selection successful!")
+            
+            return True
+            
+        except PlaywrightTimeout as e:
+            self.state = "login failed"
+            self.session_token = None
+            self._refresh_token = None
+            self.logging_in = False
+            logger.error(f"Login failed (Playwright Timeout): {e}")
+            raise RuntimeError(f"Failed to login: Playwright timed out. Check credentials or network.")
+            
+        except Exception as e:
+            self.state = "login failed"
+            self.session_token = None
+            self._refresh_token = None
+            self.logging_in = False
+            logger.error(f"Login failed: {e}")
+            # Raise RuntimeError to be caught by calling function
+            raise RuntimeError(f"Failed to login: {e}")
+            
+    def _fetch_viewer_profiles(self) -> List[Dict[str, Any]]:
+        """GET /v1/viewer to retrieve all profiles associated with the account."""
+        viewer_url = f"{self.config['api_base']}apexrest/{self.config['api_version']}/viewer"
+        
+        try:
+            # Note: This API call needs the Authorization header set from Phase 1, 
+            # but *before* the final x-viewer-id is set.
+            response = self.session.get(viewer_url)
+            response.raise_for_status()
+            data = response.json()
+            
+            profiles = data.get("profiles", [])
+            if not profiles:
+                 logger.warning("Viewer endpoint returned no profiles.")
+                 return []
+            return profiles
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch viewer profiles: {e}")
+            return []
+
+    def _select_profile_and_set_headers(self) -> bool:
+        """
+        Determines the Viewer ID, validates PIN if necessary, and sets the final 
+        x-viewer-id and x-pin headers for subsequent API calls.
+        
+        The selection priority is:
+        1. Explicit self.viewer_id
+        2. Explicit self.profile_username (with PIN check)
+        3. Automatic selection of the first profile without a PIN (if neither ID nor username is set)
+        
+        Returns:
+            bool: True if profile selection succeeded, False otherwise.
+        """
+        # Case 1: Viewer ID was provided directly (highest priority)
+        if self.viewer_id:
+            logger.info(f"Using provided Viewer ID: {self.viewer_id}")
+            self.session.headers['x-viewer-id'] = self.viewer_id
+            self.session.headers['x-pin'] = self.pin
+            return True
+
+        # Need profiles for Case 2 and 3
+        profiles = self._fetch_viewer_profiles()
+        if not profiles:
+            logger.error("Profile selection failed: Could not retrieve profile list.")
+            return False
+
+        selected_profile = None
+        
+        # Case 2: Profile username was provided
+        if self.profile_username:
+            logger.info(f"Searching for profile with username: '{self.profile_username}'")
+            selected_profile = next(
+                (p for p in profiles if p.get('username') == self.profile_username), 
+                None
+            )
+            
+            if not selected_profile:
+                logger.error(f"Profile selection failed: Could not find profile with username '{self.profile_username}'.")
+                return False
+                
+            has_pin = selected_profile.get('hasPIN', False)
+            if has_pin and self.pin == "0000":
+                # Pin is required but user did not provide one (using default "0000")
+                logger.error(f"Profile '{self.profile_username}' requires a PIN, but the default PIN '{self.pin}' was used. Login aborted.")
+                return False
+        
+        # Case 3: Automatic Selection (if neither Viewer ID nor Username was provided)
+        elif not self.viewer_id and not self.profile_username: 
+            logger.info("No Viewer ID or Username provided. Attempting to auto-select first profile with no PIN.")
+            
+            # Find the first profile that does not have a PIN
+            selected_profile = next(
+                (p for p in profiles if not p.get('hasPIN', False)),
+                None
+            )
+            
+            if not selected_profile:
+                logger.error("Auto-selection failed: No profile found that does not require a PIN.")
+                return False
+            
+            # For auto-selection of a no-PIN profile, ensure the pin header is '0000'
+            self.pin = "0000"
+            
+        # If no profile was selected by any case, return False
+        if not selected_profile:
+            logger.error("Profile selection failed: Could not identify a profile to use.")
+            return False
+
+        # --- Final Header Setup ---
+        self.viewer_id = selected_profile['viewer_id']
+        self.session.headers['x-viewer-id'] = self.viewer_id
+        # self.pin is already correctly set by Case 1, 2, or 3
+        self.session.headers['x-pin'] = self.pin 
+        
+        log_name = selected_profile.get('username', 'N/A')
+        logger.info(f"Profile selected: '{log_name}' (Viewer ID: {self.viewer_id}).")
+        
+        return True
+
+    def _exchange_code_for_token(self, auth_code: str) -> Dict[str, Any]:
+        """Exchange authorization code for access and refresh tokens."""
+        token_url = f"{self.config['api_base']}oauth2/token"
+        token_params = {
+            'grant_type': 'authorization_code',
+            'code': auth_code,
+            'redirect_uri': self.config['redirect_url'],
+            'client_id': self.config['client_id'],
+            'client_secret': self.config['client_secret']
+        }
+        
+        response = self.session.post(token_url, params=token_params)
+        response.raise_for_status()
+        
+        return response.json()
+    
+    def refresh_session(self) -> bool:
+        """Refresh the session using the refresh token."""
+        if not self._refresh_token:
+            logger.info("Session refresh skipped: no refresh token available")
+            return False
+        
+        try:
+            token_url = f"{self.config['api_base']}oauth2/token"
+            token_params = {
+                'grant_type': 'refresh_token',
+                'refresh_token': self._refresh_token,
+                'client_id': self.config['client_id'],
+                'client_secret': self.config['client_secret'],
+            }
+            
+            response = self.session.post(token_url, params=token_params)
+            
+            if response.status_code == 200:
+                token_data = response.json()
+                self.session_token = token_data.get('access_token')
+                if token_data.get('refresh_token'):
+                    self._refresh_token = token_data.get('refresh_token')
+                
+                self.session.headers['Authorization'] = f"Bearer {self.session_token}"
+                logger.info("Token refresh successful!")
+                return True
+            else:
+                logger.warning(f"Token refresh failed with status {response.status_code}. Full login will be required.")
+                self.session_token = None
+                self._refresh_token = None
+                return False
+                
+        except Exception as e:
+            logger.error(f"Session refresh failed: {e}")
+            self.session_token = None
+            self._refresh_token = None
+            return False
+    
+    def check_session(self) -> bool:
+        """Check if the current session token is valid and required headers are set."""
+        if not self.session_token:
+            return False
+        
+        # Check if the required headers are set (Viewer ID is essential for API calls)
+        if not self.session.headers.get('x-viewer-id'):
+            logger.debug("Session check failed: x-viewer-id is missing.")
+            return False
+        
+        try:
+            introspect_url = f"{self.config['api_base']}oauth2/introspect"
+            introspect_params = {
+                'token': self.session_token,
+                'token_type_hint': 'access_token',
+                'client_id': self.config['client_id'],
+                'client_secret': self.config['client_secret']
+            }
+            
+            response = self.session.post(introspect_url, params=introspect_params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('active', False)
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Session check failed: {e}")
+            return False
+    
+    def ensure_authenticated(self) -> bool:
+        """
+        Ensure the client is authenticated, attempting login/refresh as needed.
+        
+        Returns:
+            bool: True if authenticated, False otherwise
+        """
+        # 1. Check if current session is valid
+        if self.check_session():
+            logger.debug("Session is valid.")
+            return True
+        
+        # 2. Try to refresh session
+        logger.info("Session invalid, attempting refresh...")
+        if self.refresh_session():
+            return True
+        
+        # 3. Fall back to full login
+        logger.info("Refresh failed, attempting full login...")
+        return self.login()
+
+    def fetch_content(self, content_id: str, page_type: str = 'full') -> Dict[str, Any]:
+        """
+        Fetches detailed content data for a given ID, based on page_type.
+        
+        Args:
+            content_id: The ID of the content to fetch (e.g., 'a354W0000046U6OQAU').
+            page_type: The type of content page: 'full' (default), 'radio', or 'promo'.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        # Determine authentication requirement and request parameters
+        needs_auth = (page_type != 'promo')
+        is_radio = (page_type == 'radio')
+        
+        # 1. Handle Authentication if required
+        if needs_auth:
+            if not self.ensure_authenticated():
+                raise RuntimeError(f"Cannot fetch content for page_type '{page_type}': Failed to authenticate user.")
+            
+            session_to_use = self.session
+            
+        else:
+            # Promo page type requires NO authentication/viewer/pin headers
+            logger.info("Fetching content for 'promo' page type (unauthenticated request).")
+            
+            # Use a clean set of headers, keeping only the experience name if necessary
+            headers = {'x-experience-name': 'Adventures In Odyssey'}
+            # Temporarily remove default Authorization header for this request type
+            session_to_use = requests.Session()
+            session_to_use.headers.update(headers)
+            
+        # Base API URL structure for content details
+        endpoint = f"apexrest/{self.config['api_version']}/content/{content_id}"
+        url = f"{self.config['api_base']}{endpoint}"
+
+        # Standard default parameters for 'full' and 'promo'
+        params = {
+            'tag': 'true',
+            'series': 'true',
+            'recommendations': 'true',
+            'player': 'true',
+            'parent': 'true'
+        }
+
+        if is_radio:
+            # Add radio-specific parameter
+            params['radio_page_type'] = 'aired'
+            logger.info("Fetching content for 'radio' page type, adding radio_page_type=aired.")
+
+        def make_request():
+            response = session_to_use.get(url, params=params)
+            return response
+
+        try:
+            # 1. Initial attempt
+            logger.info(f"Attempting to fetch content ID: {content_id} (Page Type: {page_type})")
+            response = make_request()
+
+            # 2. Handle Unauthorized (401) ONLY if authentication was required (needs_auth)
+            if needs_auth and response.status_code == 401:
+                logger.warning("Initial request failed with 401 Unauthorized. Attempting re-authentication...")
+                
+                # Try to refresh/re-login
+                if self.ensure_authenticated():
+                    logger.info("Re-authentication successful. Retrying request...")
+                    # 3. Retry attempt
+                    response = make_request()
+                else:
+                    # If re-authentication failed, raise the initial 401 error
+                    response.raise_for_status() 
+
+            # Raise for any other non-2xx status codes (400, 403, 404, 500 etc.)
+            response.raise_for_status()
+            
+            logger.info(f"Content fetch successful for ID: {content_id} (Page Type: {page_type})")
+            return response.json()
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Failed to fetch content ID {content_id} (Page Type: {page_type}): {e}")
+            raise
+
+    def fetch_content_group(self, group_id: str) -> Dict[str, Any]:
+        """
+        Fetches detailed data for a content grouping (e.g., an album or series).
+        
+        Args:
+            group_id: The ID of the content grouping to fetch (e.g., 'a31Uh0000035T2rIAE').
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        return self.get(f"contentgrouping/{group_id}")
+
+    def fetch_content_groupings(self, page_number: int = 1, page_size: int = 25, grouping_type: str = 'Album', payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Searches for and fetches a paginated list of content groupings (e.g., albums/series).
+        
+        If 'payload' is provided, it is used directly as the POST body, overriding 
+        'page_number', 'page_size', and 'grouping_type'.
+        
+        Args:
+            page_number: The 1-based index of the page to retrieve. Defaults to 1.
+            page_size: The number of results per page. Defaults to 25.
+            grouping_type: The type of content grouping to search for: 'Album' (default), 'Series', 'Collection', 'Episode Home', etc.
+            payload: Optional. A complete request body (dictionary) to send instead of the default structured payload.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        
+        # Construct the payload based on arguments
+        if payload is not None:
+            # Use custom payload provided by the user
+            request_payload = payload
+            log_info = "custom payload"
+        else:
+            # Use structured payload based on function arguments
+            request_payload = {
+                "type": grouping_type,
+                "community": "Adventures in Odyssey",
+                "pageNumber": page_number,
+                "pageSize": page_size
+            }
+            log_info = f"Type: {grouping_type}, Page {page_number}, Size {page_size}"
+
+        logger.info(f"Attempting to fetch content groupings ({log_info})")
+        
+        return self.post("contentgrouping/search", request_payload)
+            
+    def send_progress(self, content_id: str, progress: int, status: str) -> Dict[str, Any]:
+        """
+        Sends playback progress and status updates for a specific content ID.
+        
+        Sends a PUT request to /v1/content with a JSON body.
+        
+        Args:
+            content_id: The ID of the content being updated.
+            progress: The current playback position in seconds (integer).
+            status: The playback status, typically 'In Progress' or 'Completed'.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API (usually success confirmation).
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        
+        request_payload = {
+            "content_id": content_id,
+            "status": status,
+            "current_progress": progress
+        }
+        
+        log_info = f"ID: {content_id}, Status: {status}, Progress: {progress}s"
+        logger.info(f"Attempting to send progress update: ({log_info})")
+
+        return self.put("content", request_payload)
+
+
+    def fetch_random(self) -> Dict[str, Any]:
+        """
+        Fetches a random piece of content (episode/media) from the API.
+        
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        return self.get("content/random")
+    
+    def fetch_characters(self, page_number: int = 1, page_size: int = 200) -> Dict[str, Any]:
+        """
+        Fetches a paginated list of characters (e.g., 'Whit', 'Connie', 'Eugene').
+        
+        Args:
+            page_number: The 1-based index of the page to retrieve. Defaults to 1.
+            page_size: The number of results per page. Defaults to 200.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails.
+        """
+        request_payload = {
+            "pageNumber": page_number,
+            "pageSize": page_size
+        }
+        
+        log_info = f"Page {page_number}, Size {page_size}"
+        logger.info(f"Attempting to fetch characters ({log_info})")
+        
+        return self.post("character/search", request_payload)
+
+    def fetch_cast_and_crew(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
+        """
+        Fetches a paginated list of cast and crew (authors).
+        
+        Args:
+            page_number: The 1-based index of the page to retrieve. Defaults to 1.
+            page_size: The number of results per page. Defaults to 25.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails.
+        """
+        request_payload = {
+            "pageNumber": page_number,
+            "pageSize": page_size
+        }
+        
+        log_info = f"Page {page_number}, Size {page_size}"
+        logger.info(f"Attempting to fetch cast and crew ({log_info})")
+        
+        return self.post("author/search", request_payload)
+
+    def fetch_badges(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
+        """
+        Fetches a paginated list of available badges for the profile.
+        
+        Args:
+            page_number: The 1-based index of the page to retrieve. Defaults to 1.
+            page_size: The number of results per page. Defaults to 25.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails.
+        """
+        request_payload = {
+            "type": "Badge",
+            "pageNumber": page_number,
+            "pageSize": page_size
+        }
+        
+        log_info = f"Page {page_number}, Size {page_size}"
+        logger.info(f"Attempting to fetch badges ({log_info})")
+        
+        return self.post("badge/search", request_payload)
+        
+    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Performs an authenticated GET request to a generalized API endpoint.
+        
+        Args:
+            endpoint: The relative API path (e.g., 'content/random').
+            params: Optional dictionary of query parameters.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        if not self.ensure_authenticated():
+            raise RuntimeError(f"Cannot perform GET request to {endpoint}: Failed to authenticate user.")
+            
+        # Construct the full URL by prepending the base and the API prefix
+        full_endpoint = f"{API_PREFIX}{endpoint}"
+        url = f"{self.config['api_base']}{full_endpoint}"
+
+        def make_request():
+            response = self.session.get(url, params=params)
+            return response
+
+        try:
+            logger.info(f"Attempting GET request to: {full_endpoint}")
+            response = make_request()
+
+            # Handle 401 Unauthorized
+            if response.status_code == 401:
+                logger.warning("GET request failed with 401 Unauthorized. Attempting re-authentication...")
+                if self.ensure_authenticated():
+                    logger.info("Re-authentication successful. Retrying request...")
+                    response = make_request()
+                else:
+                    response.raise_for_status() 
+
+            response.raise_for_status()
+            logger.info(f"GET request successful for: {full_endpoint}")
+            return response.json()
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"GET request failed for {full_endpoint}: {e}")
+            raise
+
+    def post(self, endpoint: str, json_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Performs an authenticated POST request to a generalized API endpoint with JSON data.
+        
+        Args:
+            endpoint: The relative API path (e.g., 'contentgrouping/search').
+            json_data: The JSON dictionary to be sent in the request body.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        if not self.ensure_authenticated():
+            raise RuntimeError(f"Cannot perform POST request to {endpoint}: Failed to authenticate user.")
+            
+        # Construct the full URL by prepending the base and the API prefix
+        full_endpoint = f"{API_PREFIX}{endpoint}"
+        url = f"{self.config['api_base']}{full_endpoint}"
+
+        def make_request():
+            # Use json=json_data to automatically set Content-Type: application/json
+            response = self.session.post(url, json=json_data)
+            return response
+
+        try:
+            logger.info(f"Attempting POST request to: {full_endpoint}")
+            response = make_request()
+
+            # Handle 401 Unauthorized
+            if response.status_code == 401:
+                logger.warning("POST request failed with 401 Unauthorized. Attempting re-authentication...")
+                if self.ensure_authenticated():
+                    logger.info("Re-authentication successful. Retrying request...")
+                    response = make_request()
+                else:
+                    response.raise_for_status() 
+
+            response.raise_for_status()
+            logger.info(f"POST request successful for: {full_endpoint}")
+            return response.json()
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"POST request failed for {full_endpoint}: {e}")
+            raise
+
+    def put(self, endpoint: str, json_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Performs an authenticated PUT request to a generalized API endpoint with JSON data.
+        
+        Args:
+            endpoint: The relative API path (e.g., 'content').
+            json_data: The JSON dictionary to be sent in the request body.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API, or a success dictionary if no content is returned.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        if not self.ensure_authenticated():
+            raise RuntimeError(f"Cannot perform PUT request to {endpoint}: Failed to authenticate user.")
+            
+        # Construct the full URL by prepending the base and the API prefix
+        full_endpoint = f"{API_PREFIX}{endpoint}"
+        url = f"{self.config['api_base']}{full_endpoint}"
+
+        def make_request():
+            # Use json=json_data to automatically set Content-Type: application/json
+            response = self.session.put(url, json=json_data)
+            return response
+
+        try:
+            logger.info(f"Attempting PUT request to: {full_endpoint}")
+            response = make_request()
+
+            # Handle 401 Unauthorized
+            if response.status_code == 401:
+                logger.warning("PUT request failed with 401 Unauthorized. Attempting re-authentication...")
+                if self.ensure_authenticated():
+                    logger.info("Re-authentication successful. Retrying request...")
+                    response = make_request()
+                else:
+                    response.raise_for_status() 
+
+            response.raise_for_status()
+            logger.info(f"PUT request successful for: {full_endpoint}")
+            # API might return no content for PUT (204 No Content), so check for content before parsing
+            return response.json() if response.content else {"status": "success"}
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"PUT request failed for {full_endpoint}: {e}")
+            raise
