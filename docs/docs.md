@@ -18,7 +18,7 @@ More functions and methods are yet to be implemented
 | **Content Retrieval** | | | |
 | `fetch_content(id, type)` | ✅ | ✅ | Retrieves the detailed data for a specific content item by its ID. |
 |`fetch_content_group(id)` | ✅ | ✅ | Retrieves the detailed data for a specific content group item by its ID.
-| `fetch_content_groupings(type)`| ✅ | ✅ | Retrieves a paginated list of content groupings by type (e.g., all **Albums** or **Collections**). |
+| `fetch_content_groupings(page_number, page_size, type)`| ✅ | ✅ | Retrieves a paginated list of content groupings by type (e.g., all **Albums** or **Collections**). |
 | `fetch_characters(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of characters |
 | `fetch_cast_and_crew(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of cast and crew |
 | `fetch_badges(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of badges |
