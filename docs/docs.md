@@ -25,8 +25,8 @@ More functions and methods are yet to be implemented
 | `fetch_random()` | ❌ | ✅ | Fetches a random episode (requires user authentication). |
 | `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Low-Level API Access** | | | |
-| `get(endpoint, params)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version automatically handles token refresh/retry. |
+| `get(endpoint, params)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles token refresh/retry. |
 | `post(endpoint, data)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
-| `put(endpoint, data)` | ❌ | ✅ | Performs a general **PUT** request (typically used for updating data/state). |
+| `put(endpoint, data)` | ❌ | ✅ | Performs a general **PUT** request |
 
 ---
