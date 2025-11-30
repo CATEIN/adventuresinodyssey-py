@@ -11,6 +11,8 @@
 
 This document provides a quick reference for the public methods available in the `AIOClient` (unauthenticated access) and `ClubClient` (authenticated access) classes.
 
+More functions and methods are yet to be implemented
+
 | Function/Method | `AIOClient` (Public) | `ClubClient` (Authenticated) | Description |
 | :--- | :---: | :---: | :--- |
 | **Content Retrieval** | | | |
