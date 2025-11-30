@@ -1,7 +1,30 @@
-# Docs coming soon...
+### Key Client Differences
 
-For now check clients
+* **`AIOClient`**: Use this for accessing any data that the public website can view **without logging in** (e.g., promotional content, general API structures).
+* **`ClubClient`**: Use this for all private, user-specific, or club-subscriber content. It handles the complex authentication flow and token management necessary for all member-gated API endpoints.
 
 [AIOClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/aioclient.md)
 
 [ClubClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/clubclient.md)
+
+# API Client Function Reference
+
+This document provides a quick reference for the public methods available in the `AIOClient` (unauthenticated access) and `ClubClient` (authenticated access) classes.
+
+| Function/Method | `AIOClient` (Public) | `ClubClient` (Authenticated) | Description |
+| :--- | :---: | :---: | :--- |
+| **Content Retrieval** | | | |
+| `fetch_content(id, type)` | ✅ | ✅ | Retrieves the detailed data for a specific content item by its ID. |
+|`fetch_content_group(id)` | ✅ | ✅ | Retrieves the detailed data for a specific content group item by its ID.
+| `fetch_content_groupings(type)`| ✅ | ✅ | Retrieves a paginated list of content groupings by type (e.g., all **Albums** or **Collections**). |
+| `fetch_characters(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of characters |
+| `fetch_cast_and_crew(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of cast and crew |
+| `fetch_badges(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of badges |
+| `fetch_random()` | ❌ | ✅ | Fetches a random episode (requires user authentication). |
+| `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
+| **Low-Level API Access** | | | |
+| `get(endpoint, params)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version automatically handles token refresh/retry. |
+| `post(endpoint, data)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
+| `put(endpoint, data)` | ❌ | ✅ | Performs a general **PUT** request (typically used for updating data/state). |
+
+---
