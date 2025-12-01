@@ -25,3 +25,4 @@ else:
     print("❌ Login failed")
 ```
 
+ `ClubClient` automatically refreshes the session (or logs in again) on `401` response codes. If login fails an error will be thrown
