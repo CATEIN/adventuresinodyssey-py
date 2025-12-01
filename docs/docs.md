@@ -1,4 +1,4 @@
-### Key Client Differences
+# Clients
 
 * **`AIOClient`**: Use this for accessing any data that the public website can view **without logging in** (e.g., promotional content, general API structures).
 * **`ClubClient`**: Use this for all private, user-specific, or club-subscriber content. It handles the complex authentication flow and token management necessary for all member-gated API endpoints.
