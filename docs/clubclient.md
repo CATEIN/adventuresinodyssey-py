@@ -12,7 +12,7 @@ password="example_password" # Required
 
 viewer_id="a3J..." # Optional. If using a viewer id, profile_username is ignored
 profile_username="name_of_a_profile_username" # Optional. Name of a user profile, if not provided will pick the first profile with no pin
-pin=1234 # Optional. Use if the profile has a pin enabled
+pin="1234" # Optional. Use if the profile has a pin enabled
 
 
 print("Logging in")
