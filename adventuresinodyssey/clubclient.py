@@ -34,7 +34,7 @@ class ClubClient:
     Handles login, token management, and authenticated API requests.
     """
     
-    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None):
+    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None, auto_relogin: bool = True):
         """
         Initialize the AIO API client
         
@@ -69,7 +69,8 @@ class ClubClient:
             'oauth_url': 'https://signin.auth.focusonthefamily.com',
             'api_version': 'v1',
             'client_id': '3MVG9l2zHsylwlpTFc1ZB3ryOQlpLYIqNo0UV4d0lBRjkbb6TXbw9UNhdcJfom2nnbB.AbNpkRbGoTfruF0gB',
-            'client_secret': 'B25FC7FE3E4C155E77C73EA2AC72D410E0762C897798816FC257F0C8FA3618AD'
+            'client_secret': 'B25FC7FE3E4C155E77C73EA2AC72D410E0762C897798816FC257F0C8FA3618AD',
+            'auto_relogin': auto_relogin
         }
         
         # Setup HTTP session
@@ -383,9 +384,41 @@ class ClubClient:
         if self.refresh_session():
             return True
         
-        # 3. Fall back to full login
-        logger.info("Refresh failed, attempting full login...")
-        return self.login()
+        # 3. Fall back to full login (Only if enabled)
+        if self.config['auto_relogin']:
+            logger.info("Refresh failed, attempting full login...")
+            return self.login()
+        else:
+            logger.warning("Refresh failed. Automatic full login is disabled.")
+            return False # Return False if we can't refresh and can't relogin
+    
+    def change_profile(self, viewer_id: str, pin: str) -> bool:
+        """
+        Switches the active profile (viewer) for authenticated requests without
+        requiring a full web login, as long as the session token is still valid.
+        
+        This updates the 'x-viewer-id' and 'x-pin' headers for all subsequent API calls.
+        
+        Args:
+            viewer_id: The ID of the profile to switch to.
+            pin: The PIN associated with the new profile.
+            
+        Returns:
+            bool: True if the profile was successfully switched and headers updated.
+        """
+        if self.state != "authenticated":
+            logger.warning("Attempted to change profile on an unauthenticated client. Please login first.")
+            return False
+            
+        logger.info(f"Switching active profile to ID: {viewer_id}...")
+        
+        self.viewer_id = viewer_id
+        self.pin = pin
+        self.session.headers['x-viewer-id'] = self.viewer_id
+        self.session.headers['x-pin'] = self.pin
+        
+        logger.info("Profile successfully switched. Headers updated.")
+        return True
 
     def fetch_content(self, content_id: str, page_type: str = 'full') -> Dict[str, Any]:
         """
@@ -1039,6 +1072,120 @@ class ClubClient:
         # POST to: apexrest/v1/comment
         # ClubClient's post method will handle authentication and retries
         return self.post("comment", json_data=payload)
+    
+    def fetch_bookmarks(self) -> Dict[str, Any]:
+        """
+        Retrieves all content bookmarked by the current club member.
+        
+        Returns:
+            Dict[str, Any]: The search results containing bookmarked content.
+        """
+        # The API endpoint is a GET request with all necessary query parameters
+        endpoint = (
+            "content/search?community=Adventures+In+Odyssey"
+            "&is_bookmarked=true"
+            "&tag=true"
+        )
+        # Use the ClubClient's authenticated GET method
+        return self.get(endpoint)
+
+    def bookmark(self, content_id: str) -> Dict[str, Any]:
+        """
+        Creates a new bookmark for a given piece of content.
+        
+        Args:
+            content_id: The ID of the content item to bookmark (e.g., an episode ID).
+            
+        Returns:
+            Dict[str, Any]: The API response, typically confirming creation.
+            
+        Raises:
+            ValueError: If the required viewer ID (profile ID) is not set on the client.
+        """
+        if not self.viewer_id:
+            raise ValueError("Cannot create bookmark: viewer_id (profile ID) is not set. Ensure the client is authenticated and a profile is selected.")
+
+        payload = {
+            "subject_id": content_id,
+            "bookmark_type": "Bookmark",
+            "subject_type": "Content__c"
+        }
+        
+        # POST to: apexrest/v1/bookmark
+        # Use the ClubClient's authenticated POST method
+        return self.post("bookmark", json_data=payload)
+    
+    def create_playlist(self, name: str, image_url: str, ids: str) -> str:
+        """
+        Creates a new content grouping (playlist) and returns its ID.
+
+        The playlist is created via a POST request to the /v1/contentgrouping endpoint.
+
+        Args:
+            name: The desired name of the new playlist.
+            image_url: The URL for the playlist's thumbnail image.
+            ids: A comma-separated string of Content IDs (e.g., episode IDs)
+                 to include in the playlist (e.g., "a35..., a35..., ...").
+
+        Returns:
+            str: The ID of the newly created playlist (e.g., 'a31Up000007WmVJIA0').
+
+        Raises:
+            RuntimeError: If authentication fails.
+            requests.exceptions.HTTPError: If the API request fails.
+            KeyError: If the API response structure is unexpected.
+        """
+        # --- ID Handling ---
+        # 1. Split the string of IDs by comma and strip whitespace.
+        # 2. Filter out any empty strings that might result from extra commas.
+        # 3. Map the clean IDs into the required API format: [{"id": "..."}]
+        
+        id_list = [
+            {"id": content_id.strip()} 
+            for content_id in ids.split(',') if content_id.strip()
+        ]
+        
+        if not id_list:
+            raise ValueError("No valid Content IDs provided in the 'ids' argument.")
+
+        # --- Payload Construction ---
+        request_payload = {
+            "metadata": {},
+            "errors": [],
+            "contentGroupings": [
+                {
+                    "name": name,
+                    "imageURL": image_url,
+                    # Note: The API does not seem to require the 'Type' field for creation,
+                    # but typically these groupings are 'Playlist' or 'Custom List'.
+                    # We will stick to the minimal structure requested.
+                    "contentList": id_list
+                }
+            ]
+        }
+        
+        log_info = f"Name: {name}, Items: {len(id_list)}"
+        logger.info(f"Attempting to create new playlist: ({log_info})")
+
+        # --- API Call ---
+        # The base URL and API prefix are handled by self.post
+        # POST to: apexrest/v1/contentgrouping
+        response = self.post("contentgrouping", json_data=request_payload)
+        
+        # --- Response Parsing ---
+        # Expected response structure:
+        # { "metadata": {}, "errors": [], "contentGroupings": [ { "id": "...", ... } ] }
+        
+        try:
+            # Extract the ID of the first (and only) grouping in the response list
+            playlist_id = response['contentGroupings'][0]['id']
+            logger.info(f"Playlist '{name}' successfully created with ID: {playlist_id}")
+            return playlist_id
+            
+        except (KeyError, IndexError) as e:
+            logger.error(f"Failed to parse playlist ID from API response: {e}")
+            logger.debug(f"Raw Response: {response}")
+            raise KeyError("API response was missing the expected 'contentGroupings[0]['id']' field.")
         
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
