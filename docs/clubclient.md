@@ -17,7 +17,7 @@ pin="1234" # Optional. Use if the profile has a pin enabled
 
 print("Logging in")
 # since no viewer_id or profile_username is provided, it will attempt to use the first profile with no pin
-client = ClubClient(email=email, password=password) # viewer_id=viewer_id, profile_username=profile_username, pin=pin
+client = ClubClient(email=email, password=password, auto_relogin=True) # viewer_id=viewer_id, profile_username=profile_username, pin=pin
 loggedIn = client.login()
 if loggedIn:
     print(f"✅ Login successful!")
@@ -25,4 +25,5 @@ else:
     print("❌ Login failed")
 ```
 
- `ClubClient` automatically refreshes the session (or logs in again) on `401` response codes. If login fails an error will be thrown
+ `ClubClient` automatically refreshes the session (or logs in again) on `401` response codes. If login fails an error will be thrown.
+ This behavior can be changed by setting `auto_relogin=False`
