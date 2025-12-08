@@ -7,6 +7,13 @@
 
 [ClubClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/clubclient.md)
 
+# Logging
+
+```python
+from adventuresinodyssey import set_logging_level
+set_logging_level('INFO')
+```
+
 # API Client Function Reference
 
 This document provides a quick reference for the public methods available in the `AIOClient` (unauthenticated access) and `ClubClient` (authenticated access) classes.
@@ -24,9 +31,9 @@ More functions and methods might be added
 | `fetch_cast_and_crew(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of cast and crew |
 | `fetch_themes(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of themes |
 | `fetch_theme(theme_id)` | ✅ | ✅ | Retrieves the detailed data for a specific theme group item by its ID. |
-| `cache_episodes()` | ✅ | ✅ | Caches all episodes and returns a flattened list. |
+| `cache_episodes()` | ✅ | ✅ | Caches all episodes by fetching all albums and returns a flattened list. |
 | `search_all(query)` | ✅ | ✅ | searches for everything |
-| `search(query, search_objects)` | ✅ | ✅ | searches for everything |
+| `search(query, search_objects)` | ✅ | ✅ | searches |
 | `fetch_random()` | ❌ | ✅ | Fetches a random episode. |
 | `fetch_badge(badge_id)`| ❌ | ✅ | Retrieves the detailed data for a specific badge by its ID. |
 | `fetch_badges(page_number, page_size)`| ❌ | ✅ | Retrieves a paginated list of badges |
@@ -35,7 +42,7 @@ More functions and methods might be added
 | `post_reply(related_id, page_number, page_size)` | ❌ | ✅ | Posts a reply to a given comment ID. |
 | `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Low-Level API Access** | | | |
-| `get(endpoint, params)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles token refresh/retry. |
+| `get(endpoint, params)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles authentication and retry. |
 | `post(endpoint, data)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
 | `put(endpoint, data)` | ❌ | ✅ | Performs a general **PUT** request |
 
