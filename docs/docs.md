@@ -34,6 +34,7 @@ More functions and methods might be added
 | `cache_episodes()` | ✅ | ✅ | Caches all episodes by fetching all albums and returns a flattened list. |
 | `search_all(query)` | ✅ | ✅ | searches for everything |
 | `search(query, search_objects)` | ✅ | ✅ | searches |
+| `fetch_signed_cookie(type)` | ❌ | ✅ | Fetches a signed cookie. Either audio or video |
 | `fetch_random()` | ❌ | ✅ | Fetches a random episode. |
 | `fetch_badge(badge_id)`| ❌ | ✅ | Retrieves the detailed data for a specific badge by its ID. |
 | `fetch_badges(page_number, page_size)`| ❌ | ✅ | Retrieves a paginated list of badges |
@@ -42,8 +43,8 @@ More functions and methods might be added
 | `post_reply(related_id, page_number, page_size)` | ❌ | ✅ | Posts a reply to a given comment ID. |
 | `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Low-Level API Access** | | | |
-| `get(endpoint, params)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles authentication and retry. |
-| `post(endpoint, data)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
-| `put(endpoint, data)` | ❌ | ✅ | Performs a general **PUT** request |
+| `get(endpoint, params, headers)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles authentication and retry. |
+| `post(endpoint, json_data, headers)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
+| `put(endpoint, json_data, headers)` | ❌ | ✅ | Performs a general **PUT** request |
 
 ---
