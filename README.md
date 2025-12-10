@@ -1,3 +1,4 @@
+[![PyPI version](https://img.shields.io/pypi/v/adventuresinodyssey?label=PyPI)](https://pypi.org/project/adventuresinodyssey/)  
 # adventuresinodyssey
 Unofficial python API client for the Adventures in Odyssey Club and public endpoints.
 
