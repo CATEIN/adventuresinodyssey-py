@@ -23,7 +23,7 @@ More functions and methods might be added
 | Function/Method | `AIOClient` (Public) | `ClubClient` (Authenticated) | Description |
 | :--- | :---: | :---: | :--- |
 | **Content Retrieval** | | | |
-| `fetch_content(id, type)` | ✅ | ✅ | Retrieves the detailed data for a specific content item by its ID. |
+| `fetch_content(id, page_type)` | ✅ | ✅ | Retrieves the detailed data for a specific content item by its ID. |
 |`fetch_content_group(id)` | ✅ | ✅ | Retrieves the detailed data for a specific content group item by its ID.
 | `fetch_radio(content_type, page_number, page_size)` | ✅ | ✅ | Fetches the schedule of aired or upcoming radio episodes. (aired or upcoming) |
 | `fetch_content_groupings(page_number, page_size, type)`| ✅ | ✅ | Retrieves a paginated list of content groupings by type (e.g., all **Albums** or **Collections**). |
