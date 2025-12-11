@@ -2,10 +2,50 @@ import random
 import time
 import difflib
 import sys
-import select
 
 import mpv
 from adventuresinodyssey import AIOClient
+
+try:
+    import msvcrt
+    WINDOWS = True
+except ImportError:
+    WINDOWS = False
+
+def input_with_timeout(timeout):
+    start = time.time()
+    buffer = ""
+
+    if WINDOWS:
+        while True:
+            if msvcrt.kbhit():
+                char = msvcrt.getwch()
+
+                if char in ("\r", "\n"):
+                    print() 
+                    return buffer
+
+                if char == "\b":
+                    buffer = buffer[:-1]
+                    print("\b \b", end="", flush=True)
+                    continue
+
+                buffer += char
+                print(char, end="", flush=True)
+
+            if time.time() - start > timeout:
+                return None
+
+            time.sleep(0.01)
+
+    else:
+        import select
+        print("", end="", flush=True)
+        r, _, _ = select.select([sys.stdin], [], [], timeout)
+        if r:
+            return sys.stdin.readline().strip()
+        return None
+
 
 client = AIOClient()
 
@@ -16,29 +56,24 @@ if not all_episodes:
     print("Error: Failed to cache episodes.")
     exit()
 
-# MPV player
+
 player = mpv.MPV(ytdl=False, video="no")
 player.http_header_fields = ["Sec-Fetch-Dest: audio"]
+
 
 def is_close_enough(guess: str, answer: str, threshold: float = 0.70) -> bool:
     ratio = difflib.SequenceMatcher(None, guess.lower().strip(), answer.lower().strip()).ratio()
     return ratio >= threshold
 
-# Non-blocking input helper
-def input_with_timeout(timeout):
-    """Wait for input up to 'timeout' seconds."""
-    r, _, _ = select.select([sys.stdin], [], [], timeout)
-    if r:
-        return sys.stdin.readline().strip()
-    return None
 
 print("\nWelcome to the Adventures in Odyssey Trivia Game!")
 print("You have **3 minutes** to guess as many episode titles as possible!\n")
 
 start_time = time.time()
-time_limit = 3 * 60 
+time_limit = 3 * 60
 score = 0
-ROUND_LIMIT = 30 
+ROUND_LIMIT = 30
+
 
 while time.time() - start_time < time_limit:
 
@@ -55,7 +90,7 @@ while time.time() - start_time < time_limit:
             print("Episode has no promo audio, skipping...")
 
     print("\nNew Episode!")
-    print("Playing audio...\n")
+    print("Playing promo...\n")
 
     player.play(url)
     player.wait_until_playing()
@@ -67,9 +102,8 @@ while time.time() - start_time < time_limit:
         elapsed = time.time() - round_start
         remaining = ROUND_LIMIT - elapsed
 
-        # Time's up for this round
         if remaining <= 0:
-            print(f"\nPromo's over!")
+            print("\nTime's up!")
             print(f"The correct answer was: {title}")
             break
 
@@ -78,22 +112,21 @@ while time.time() - start_time < time_limit:
         guess = input_with_timeout(remaining)
 
         if guess is None:
-            print(f"\nTime's up!")
+            print("\nTime's up!")
             print(f"The correct answer was: {title}")
             break
 
-        # User entered a guess
         if is_close_enough(guess, title):
             print("Correct!")
             print(f"Episode Title: {title}")
             score += 1
             break
+
+        tries -= 1
+        if tries > 0:
+            print(f"Incorrect! {tries} tries left.")
         else:
-            tries -= 1
-            if tries > 0:
-                print(f"Incorrect! {tries} tries left.")
-            else:
-                print(f"Out of tries! The correct answer was: {title}")
+            print(f"Out of tries! The correct answer was: {title}")
 
     print(f"Current Score: {score}")
 
@@ -102,6 +135,7 @@ while time.time() - start_time < time_limit:
     except:
         pass
 
-print("\nTime's up!")
+
+print("\nTime’s up!")
 print(f"Final Score: {score} correct in 3 minutes!")
 print("Thanks for playing!")
