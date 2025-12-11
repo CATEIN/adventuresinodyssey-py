@@ -1187,13 +1187,71 @@ class ClubClient:
             logger.debug(f"Raw Response: {response}")
             raise KeyError("API response was missing the expected 'contentGroupings[0]['id']' field.")
         
-    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def fetch_signed_cookie(self, content_type: str) -> str:
+        """
+        Fetches the content data for a known audio or video test ID, extracts the 
+        signed cookie URL, and returns only the query string portion.
+
+        Args:
+            content_type: The type of content to fetch: 'audio' or 'video'.
+
+        Returns:
+            str: The signed cookie URL query string (Policy=...&Signature=...&Key-Pair-Id=...).
+
+        Raises:
+            ValueError: If an invalid content_type is provided or the cookie URL is missing.
+            requests.exceptions.HTTPError: If the underlying API request fails.
+        """
+        if content_type.lower() == 'audio':
+            # Episode: The Case of the Missing Train Car
+            content_id = "a354W0000046V5fQAE"
+            logger.info("Fetching signed cookie for known audio content ID.")
+        elif content_type.lower() == 'video':
+            # Video: Behind the Scenes: Album 73 - The Long Road Home
+            content_id = "a354W0000046SHtQAM"
+            logger.info("Fetching signed cookie for known video content ID.")
+        else:
+            raise ValueError(f"Invalid content_type '{content_type}'. Must be 'audio' or 'video'.")
+
+        # 1. Fetch the content data
+        # Note: This uses the default 'full' page_type, which is authenticated.
+        content_data = self.fetch_content(content_id)
+
+        # 2. Extract the signed cookie URL
+        # The key for the signed content URL is typically 'signed_cookie'
+        # The API response structure varies, but often the signed URL is nested under 'media' or similar.
+        signed_cookie_url = content_data.get('signed_cookie') 
+        
+        # Check a common alternative path if the top-level 'signed_cookie' is missing.
+        # Although the key name suggests it should be top-level, it's good practice to check common nesting.
+        if not signed_cookie_url:
+             # Check if it's nested under a 'media' or 'player' key, or is the content URL itself
+            signed_cookie_url = content_data.get('content_url')
+        
+        if not signed_cookie_url:
+            logger.error("Signed cookie URL not found in API response.")
+            raise ValueError("API response for content ID contains no 'signed_cookie' or similar URL.")
+
+        # 3. Parse the URL to get only the query parameters
+        # Example URL: https://media.adventuresinodyssey.com/.../*?Policy=...&Signature=...&Key-Pair-Id=...
+        parsed_url = urlparse(signed_cookie_url)
+        
+        # The query component is the part after the '?'
+        if not parsed_url.query:
+             logger.error(f"URL contains no query parameters: {signed_cookie_url}")
+             raise ValueError("The retrieved signed cookie URL did not contain a query string.")
+             
+        logger.info(f"Successfully extracted signed cookie query for ID: {content_id}")
+        return parsed_url.query
+        
+    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Performs an authenticated GET request to a generalized API endpoint.
-        
+
         Args:
             endpoint: The relative API path (e.g., 'content/random').
             params: Optional dictionary of query parameters.
+            headers: Optional dictionary of headers to override or add for this request.
             
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
@@ -1207,9 +1265,18 @@ class ClubClient:
         # Construct the full URL by prepending the base and the API prefix
         full_endpoint = f"{API_PREFIX}{endpoint}"
         url = f"{self.config['api_base']}{full_endpoint}"
+        
+        # --- HEADER OVERRIDE LOGIC ---
+        # 1. Start with the session's default headers
+        request_headers = self.session.headers.copy()
+        # 2. Update/Override with the provided headers
+        if headers:
+            request_headers.update(headers)
+        # -----------------------------
 
         def make_request():
-            response = self.session.get(url, params=params)
+            # Pass the custom headers to the request call
+            response = self.session.get(url, params=params, headers=request_headers)
             return response
 
         try:
@@ -1221,6 +1288,12 @@ class ClubClient:
                 logger.warning("GET request failed with 401 Unauthorized. Attempting re-authentication...")
                 if self.ensure_authenticated():
                     logger.info("Re-authentication successful. Retrying request...")
+                    # If re-auth succeeds, the session headers are updated, but we still need 
+                    # to use the potentially overridden headers for the retry.
+                    # Since session.headers updates 'Authorization', we re-copy it here.
+                    request_headers = self.session.headers.copy()
+                    if headers:
+                        request_headers.update(headers)
                     response = make_request()
                 else:
                     response.raise_for_status() 
@@ -1233,13 +1306,14 @@ class ClubClient:
             logger.error(f"GET request failed for {full_endpoint}: {e}")
             raise
 
-    def post(self, endpoint: str, json_data: Dict[str, Any]) -> Dict[str, Any]:
+    def post(self, endpoint: str, json_data: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Performs an authenticated POST request to a generalized API endpoint with JSON data.
         
         Args:
             endpoint: The relative API path (e.g., 'contentgrouping/search').
             json_data: The JSON dictionary to be sent in the request body.
+            headers: Optional dictionary of headers to override or add for this request.
             
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
@@ -1253,10 +1327,17 @@ class ClubClient:
         # Construct the full URL by prepending the base and the API prefix
         full_endpoint = f"{API_PREFIX}{endpoint}"
         url = f"{self.config['api_base']}{full_endpoint}"
+        
+        # --- HEADER OVERRIDE LOGIC ---
+        request_headers = self.session.headers.copy()
+        if headers:
+            request_headers.update(headers)
+        # -----------------------------
 
         def make_request():
+            # Pass the custom headers to the request call
             # Use json=json_data to automatically set Content-Type: application/json
-            response = self.session.post(url, json=json_data)
+            response = self.session.post(url, json=json_data, headers=request_headers)
             return response
 
         try:
@@ -1268,6 +1349,10 @@ class ClubClient:
                 logger.warning("POST request failed with 401 Unauthorized. Attempting re-authentication...")
                 if self.ensure_authenticated():
                     logger.info("Re-authentication successful. Retrying request...")
+                    # Update request headers after re-authentication
+                    request_headers = self.session.headers.copy()
+                    if headers:
+                        request_headers.update(headers)
                     response = make_request()
                 else:
                     response.raise_for_status() 
@@ -1280,13 +1365,14 @@ class ClubClient:
             logger.error(f"POST request failed for {full_endpoint}: {e}")
             raise
 
-    def put(self, endpoint: str, json_data: Dict[str, Any]) -> Dict[str, Any]:
+    def put(self, endpoint: str, json_data: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Performs an authenticated PUT request to a generalized API endpoint with JSON data.
         
         Args:
             endpoint: The relative API path (e.g., 'content').
             json_data: The JSON dictionary to be sent in the request body.
+            headers: Optional dictionary of headers to override or add for this request.
             
         Returns:
             Dict[str, Any]: The parsed JSON response from the API, or a success dictionary if no content is returned.
@@ -1300,10 +1386,17 @@ class ClubClient:
         # Construct the full URL by prepending the base and the API prefix
         full_endpoint = f"{API_PREFIX}{endpoint}"
         url = f"{self.config['api_base']}{full_endpoint}"
+        
+        # --- HEADER OVERRIDE LOGIC ---
+        request_headers = self.session.headers.copy()
+        if headers:
+            request_headers.update(headers)
+        # -----------------------------
 
         def make_request():
+            # Pass the custom headers to the request call
             # Use json=json_data to automatically set Content-Type: application/json
-            response = self.session.put(url, json=json_data)
+            response = self.session.put(url, json=json_data, headers=request_headers)
             return response
 
         try:
@@ -1315,6 +1408,10 @@ class ClubClient:
                 logger.warning("PUT request failed with 401 Unauthorized. Attempting re-authentication...")
                 if self.ensure_authenticated():
                     logger.info("Re-authentication successful. Retrying request...")
+                    # Update request headers after re-authentication
+                    request_headers = self.session.headers.copy()
+                    if headers:
+                        request_headers.update(headers)
                     response = make_request()
                 else:
                     response.raise_for_status() 
