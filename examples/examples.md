@@ -1,3 +1,3 @@
 # Example programs
 
-## [bedtime.py](examples/bedtime.py)
+## [bedtime.py](/bedtime.py)
