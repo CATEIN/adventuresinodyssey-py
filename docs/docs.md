@@ -39,8 +39,8 @@ More functions and methods might be added
 | `fetch_badge(badge_id)`| ❌ | ✅ | Retrieves the detailed data for a specific badge by its ID. |
 | `fetch_badges(page_number, page_size)`| ❌ | ✅ | Retrieves a paginated list of badges |
 | `fetch_comments(related_id, page_number, page_size)` | ❌ | ✅ | Fetches comments from given ID. |
-| `post_comment(related_id, page_number, page_size)` | ❌ | ✅ | Posts a comment to a given page ID. |
-| `post_reply(related_id, page_number, page_size)` | ❌ | ✅ | Posts a reply to a given comment ID. |
+| `post_comment(related_id)` | ❌ | ✅ | Posts a comment to a given page ID. |
+| `post_reply(related_id)` | ❌ | ✅ | Posts a reply to a given comment ID. |
 | `create_playlist(name, image_url, ids)` | ❌ | ✅ | Creates a playlist with the provided data |
 | `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Low-Level API Access** | | | |
