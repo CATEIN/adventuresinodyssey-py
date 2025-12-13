@@ -45,7 +45,7 @@ More functions and methods might be added
 | `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Low-Level API Access** | | | |
 | `get(endpoint, params, headers)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles authentication and retry. |
-| `post(endpoint, json_data, headers)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
-| `put(endpoint, json_data, headers)` | ❌ | ✅ | Performs a general **PUT** request |
+| `post(endpoint, payload, headers)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
+| `put(endpoint, payload, headers)` | ❌ | ✅ | Performs a general **PUT** request |
 
 ---
