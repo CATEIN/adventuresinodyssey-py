@@ -149,55 +149,61 @@ class AIOClient:
         # The endpoint is 'content/search', and the generalized get method handles the base URL.
         return self.get("content/search", params=params)
     
-    def cache_episodes(self) -> List[Dict[str, Any]]:
+    def cache_episodes(self, grouping_type: str = "Album") -> List[Dict[str, Any]]:
         """
-        Retrieves all available audio episodes from all albums via public API, 
-        cleans the data, and returns a flattened list. Excludes 'BONUS!' episodes.
+        Retrieves all available audio episodes from the specified content grouping type 
+        (e.g., "Album", "Episode Home"), cleans the data, and returns a flattened list. 
+        Excludes episodes starting with "BONUS!".
 
-        This function automatically handles pagination across all album pages.
+        This function automatically handles pagination across all pages for the grouping type.
+
+        Args:
+            grouping_type (str): The type of content grouping to fetch episodes from 
+                                (e.g., "Album", "Episode Home"). Defaults to "Album".
 
         Returns:
             List[Dict[str, Any]]: A flat list of cleaned episode dictionaries.
         """
-        
-        logger.info("Starting process to cache all episodes (fetching all album pages).")
+
+        logger.info(f"Starting process to cache all episodes (fetching all '{grouping_type}' pages).")
         
         all_episodes = []
-        current_page = 1 # START at page 1
-        page_size = 100
-        total_pages = float('inf') # Will be updated after the first API call
+        current_page = 1
+        total_pages = 1  # Will be updated after the first API call
 
-        # Change loop condition to use page number
-        while current_page <= total_pages: 
-            logger.debug(f"Fetching albums page {current_page} of {total_pages}...")
+        # Loop until the current page exceeds the total number of pages
+        while current_page <= total_pages:
+            logger.debug(f"Fetching '{grouping_type}' page {current_page} of {total_pages}...")
             
-            # Use the method which accepts page_number
+            # Fetch content groupings (e.g., Albums or Episode Home)
+            # Use a large page size (100) to minimize the number of API calls
             response = self.fetch_content_groupings(
-                grouping_type="Album", 
-                page_size=page_size, 
-                page_number=current_page # Correct argument name
+                grouping_type=grouping_type,  # <<< CHANGED TO USE ARGUMENT
+                page_number=current_page, 
+                page_size=100
             )
             
+            # Update total pages on the first request
             if current_page == 1:
                 try:
-                    # Use totalPageCount from metadata to control the loop
                     total_pages = response['metadata']['totalPageCount']
-                    logger.info(f"Total album pages to retrieve: {total_pages}")
+                    logger.info(f"Total '{grouping_type}' pages to retrieve: {total_pages}")
                 except (KeyError, TypeError):
-                    logger.warning("Could not determine totalPageCount. Assuming only one page.")
-                    total_pages = 1 # Set to 1 to exit loop after this run
-
+                    logger.warning("Could not determine totalPageCount from metadata. Assuming only one page.")
+            
+            # Process the content groupings on the current page
             content_groupings = response.get('contentGroupings', [])
             
-            for album in content_groupings:
-                album_id = album.get('id')
-                album_name = album.get('name', 'UNKNOWN ALBUM')
+            for content_grouping in content_groupings: # <<< RENAMED FROM 'album' for generality
+                # Use a generic name for the grouping ID and Name
+                grouping_id = content_grouping.get('id')
+                grouping_name = content_grouping.get('name', f'UNKNOWN {grouping_type.upper()}')
                 
-                if not album_id:
-                    logger.warning(f"Skipping album '{album_name}' due to missing ID.")
+                if not grouping_id:
+                    logger.warning(f"Skipping {grouping_type} '{grouping_name}' due to missing ID.")
                     continue
 
-                episode_list = album.get('contentList', [])
+                episode_list = content_grouping.get('contentList', [])
                 
                 for episode in episode_list:
                     episode_name = episode.get('name', 'Untitled Episode')
@@ -207,16 +213,16 @@ class AIOClient:
                         logger.debug(f"Skipping bonus episode: {episode_name}")
                         continue
 
-                    # 2. Add 'album_id' to the episode dictionary
+                    # 2. Add the grouping ID to the episode dictionary
+                    # Note: Keeping the key as 'album_id' for consistency with previous usage
                     clean_episode = episode.copy() 
-                    clean_episode['album_id'] = album_id
+                    clean_episode['album_id'] = grouping_id # Still using 'album_id' key
                     
                     all_episodes.append(clean_episode)
                     
-            # Increment the page number for the next page
             current_page += 1
 
-        logger.info(f"Successfully cached {len(all_episodes)} clean episodes.")
+        logger.info(f"Successfully cached {len(all_episodes)} clean episodes across {total_pages} pages.")
         return all_episodes
     
     def fetch_content_group(self, group_id: str) -> Dict[str, Any]:
@@ -332,13 +338,13 @@ class AIOClient:
         Returns:
             Dict[str, Any]: The parsed JSON response containing the list of themes.
         """
-        payload = {
+        themes_json = {
             "pageNumber": page_number,
             "pageSize": page_size
         }
         
         # POST to: apexrest/v1/topic/search
-        return self.post("topic/search", json_data=payload)
+        return self.post("topic/search", payload=themes_json)
 
     def fetch_theme(self, theme_id: str) -> Dict[str, Any]:
         """
@@ -352,6 +358,19 @@ class AIOClient:
         """
         # GET to: apexrest/v1/topic/{id}?tag=true
         endpoint = f"topic/{theme_id}?tag=true"
+        return self.get(endpoint)
+    
+    def fetch_character(self, character_id: str) -> Dict[str, Any]:
+        """
+        Retrieves detailed information for a specific character by its ID.
+        
+        Args:
+            character_id: The unique ID of the character to retrieve.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response containing the character details.
+        """
+        endpoint = "character/" + character_id
         return self.get(endpoint)
     
     def _clean_search_results(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
@@ -434,7 +453,7 @@ class AIOClient:
         }
         
         # 1. Perform the raw POST request
-        raw_response = self.post("search", json_data=search_payload)
+        raw_response = self.post("search", payload=search_payload)
         
         # 2. Clean the raw response before returning
         return self._clean_search_results(raw_response)
@@ -502,7 +521,7 @@ class AIOClient:
         }
 
         # 2. Perform the raw POST request
-        raw_response = self.post("search", json_data=search_payload)
+        raw_response = self.post("search", payload=search_payload)
         
         # 3. Clean the raw response before returning
         return self._clean_search_results(raw_response)
@@ -536,13 +555,13 @@ class AIOClient:
             logger.error(f"GET request failed for {full_endpoint}: {e}")
             raise
 
-    def post(self, endpoint: str, json_data: Dict[str, Any]) -> Dict[str, Any]:
+    def post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         Performs an unauthenticated POST request to a generalized API endpoint with JSON data.
         
         Args:
             endpoint: The relative API path (e.g., 'contentgrouping/search').
-            json_data: The JSON dictionary to be sent in the request body.
+            payload: The JSON dictionary to be sent in the request body.
             
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
@@ -556,8 +575,8 @@ class AIOClient:
 
         try:
             logger.info(f"Attempting unauthenticated POST request to: {full_endpoint}")
-            # Use json=json_data to automatically set Content-Type: application/json
-            response = self.session.post(url, json=json_data)
+            # Use json=payload to automatically set Content-Type: application/json
+            response = self.session.post(url, json=payload)
             response.raise_for_status()
             logger.info(f"POST request successful for: {full_endpoint}")
             return response.json()

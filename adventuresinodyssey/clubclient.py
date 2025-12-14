@@ -3,6 +3,8 @@ Adventures in Odyssey API Authentication Client
 """
 
 import logging
+import json
+from pathlib import Path
 from typing import Optional, Dict, Any, List, Union
 from urllib.parse import urlencode, urlparse, parse_qs
 import requests
@@ -34,7 +36,7 @@ class ClubClient:
     Handles login, token management, and authenticated API requests.
     """
     
-    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None, auto_relogin: bool = True):
+    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None, auto_relogin: bool = True, config_path: str = 'club_session.json'):
         """
         Initialize the AIO API client
         
@@ -72,6 +74,10 @@ class ClubClient:
             'client_secret': 'B25FC7FE3E4C155E77C73EA2AC72D410E0762C897798816FC257F0C8FA3618AD',
             'auto_relogin': auto_relogin
         }
+
+        self.config_file = Path(config_path) 
+        
+        self._load_session_state()
         
         # Setup HTTP session
         self.session = requests.Session()
@@ -162,6 +168,7 @@ class ClubClient:
             self.logging_in = False
             self.state = "ready"
             logger.info("Login and profile selection successful!")
+            self._save_session_state()
             
             return True
             
@@ -181,6 +188,70 @@ class ClubClient:
             logger.error(f"Login failed: {e}")
             # Raise RuntimeError to be caught by calling function
             raise RuntimeError(f"Failed to login: {e}")
+        
+    def _save_session_state(self):
+        """Saves the essential session data to a local JSON file."""
+        if not self._refresh_token or not self.viewer_id:
+            logger.debug("Skipping save: Missing refresh token or viewer ID.")
+            return
+
+        state = {
+            'refresh_token': self._refresh_token,
+            'viewer_id': self.viewer_id,
+            # Note: Storing the PIN is a security risk, but required for profile switching.
+            'pin': self.pin 
+        }
+        
+        try:
+            with self.config_file.open('w', encoding='utf-8') as f:
+                json.dump(state, f, indent=4)
+            logger.info(f"Session state saved to {self.config_file}")
+        except Exception as e:
+            logger.error(f"Failed to save session state: {e}")
+
+    def _load_session_state(self) -> bool:
+        """Loads the essential session data from a local JSON file."""
+        if not self.config_file.exists():
+            return False
+            
+        try:
+            with self.config_file.open('r', encoding='utf-8') as f:
+                state = json.load(f)
+
+            # 1. ALWAYS load the refresh token (this is the core of persistence)
+            self._refresh_token = state.get('refresh_token')
+            
+            # 2. CONDITIONALLY load profile parameters
+            
+            # The viewer_id is only None if the user did NOT pass it to the constructor.
+            # If the user supplied a viewer_id, we keep that new value.
+            if self.viewer_id is None:
+                self.viewer_id = state.get('viewer_id')
+                
+            # The pin defaults to "0000". If the user did NOT supply a pin 
+            # (and it's currently "0000"), and the file has one, load the file's pin.
+            # If the user supplied a custom pin (e.g., "1234"), we keep "1234".
+            # This assumes the original value of self.pin is only "0000" if no pin was supplied.
+            if self.pin == "0000" and state.get('pin'): 
+                self.pin = state.get('pin')
+            
+            # Since the session token is short-lived, we *MUST* immediately try to refresh
+            # to get a new access token before any API calls are made.
+            # We don't call self.refresh_session() here because it depends on the 
+            # self.session object and headers being set up, which happens *after* __init__.
+            
+            # The presence of the refresh_token is enough to signal that a saved session exists.
+            if self._refresh_token:
+                # Set state to ready, as we expect a refresh to follow
+                self.state = "ready"
+                logger.info("Loaded saved session state. Refresh required.")
+                return True
+                
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to load session state: {e}")
+            return False
             
     def _fetch_viewer_profiles(self) -> List[Dict[str, Any]]:
         """GET /v1/viewer to retrieve all profiles associated with the account."""
@@ -563,18 +634,23 @@ class ClubClient:
         # The endpoint is 'content/search', and the generalized get method handles the base URL.
         return self.get("content/search", params=params)
     
-    def cache_episodes(self) -> List[Dict[str, Any]]:
+    def cache_episodes(self, grouping_type: str = "Album") -> List[Dict[str, Any]]:
         """
-        Retrieves all available audio episodes from all albums, cleans the data, 
-        and returns a flattened list. Excludes episodes starting with "BONUS!".
+        Retrieves all available audio episodes from the specified content grouping type 
+        (e.g., "Album", "Episode Home"), cleans the data, and returns a flattened list. 
+        Excludes episodes starting with "BONUS!".
 
-        This function automatically handles pagination across all album pages.
+        This function automatically handles pagination across all pages for the grouping type.
+
+        Args:
+            grouping_type (str): The type of content grouping to fetch episodes from 
+                                (e.g., "Album", "Episode Home"). Defaults to "Album".
 
         Returns:
             List[Dict[str, Any]]: A flat list of cleaned episode dictionaries.
         """
-        
-        logger.info("Starting process to cache all episodes (fetching all album pages).")
+
+        logger.info(f"Starting process to cache all episodes (fetching all '{grouping_type}' pages).")
         
         all_episodes = []
         current_page = 1
@@ -582,12 +658,12 @@ class ClubClient:
 
         # Loop until the current page exceeds the total number of pages
         while current_page <= total_pages:
-            logger.debug(f"Fetching album page {current_page} of {total_pages}...")
+            logger.debug(f"Fetching '{grouping_type}' page {current_page} of {total_pages}...")
             
-            # Fetch content groupings (Albums)
+            # Fetch content groupings (e.g., Albums or Episode Home)
             # Use a large page size (100) to minimize the number of API calls
             response = self.fetch_content_groupings(
-                grouping_type="Album", 
+                grouping_type=grouping_type,  # <<< CHANGED TO USE ARGUMENT
                 page_number=current_page, 
                 page_size=100
             )
@@ -596,22 +672,23 @@ class ClubClient:
             if current_page == 1:
                 try:
                     total_pages = response['metadata']['totalPageCount']
-                    logger.info(f"Total album pages to retrieve: {total_pages}")
+                    logger.info(f"Total '{grouping_type}' pages to retrieve: {total_pages}")
                 except (KeyError, TypeError):
                     logger.warning("Could not determine totalPageCount from metadata. Assuming only one page.")
             
-            # Process the albums on the current page
+            # Process the content groupings on the current page
             content_groupings = response.get('contentGroupings', [])
             
-            for album in content_groupings:
-                album_id = album.get('id')
-                album_name = album.get('name', 'UNKNOWN ALBUM')
+            for content_grouping in content_groupings: # <<< RENAMED FROM 'album' for generality
+                # Use a generic name for the grouping ID and Name
+                grouping_id = content_grouping.get('id')
+                grouping_name = content_grouping.get('name', f'UNKNOWN {grouping_type.upper()}')
                 
-                if not album_id:
-                    logger.warning(f"Skipping album '{album_name}' due to missing ID.")
+                if not grouping_id:
+                    logger.warning(f"Skipping {grouping_type} '{grouping_name}' due to missing ID.")
                     continue
 
-                episode_list = album.get('contentList', [])
+                episode_list = content_grouping.get('contentList', [])
                 
                 for episode in episode_list:
                     episode_name = episode.get('name', 'Untitled Episode')
@@ -621,10 +698,10 @@ class ClubClient:
                         logger.debug(f"Skipping bonus episode: {episode_name}")
                         continue
 
-                    # 2. Add 'album_id' to the episode dictionary
-                    # Note: We create a copy to avoid modifying the response JSON directly
+                    # 2. Add the grouping ID to the episode dictionary
+                    # Note: Keeping the key as 'album_id' for consistency with previous usage
                     clean_episode = episode.copy() 
-                    clean_episode['album_id'] = album_id
+                    clean_episode['album_id'] = grouping_id # Still using 'album_id' key
                     
                     all_episodes.append(clean_episode)
                     
@@ -813,13 +890,13 @@ class ClubClient:
         Returns:
             Dict[str, Any]: The parsed JSON response containing the list of themes.
         """
-        payload = {
+        themes_json = {
             "pageNumber": page_number,
             "pageSize": page_size
         }
         
         # POST to: apexrest/v1/topic/search
-        return self.post("topic/search", json_data=payload)
+        return self.post("topic/search", payload=themes_json)
 
     def fetch_theme(self, theme_id: str) -> Dict[str, Any]:
         """
@@ -833,6 +910,19 @@ class ClubClient:
         """
         # GET to: apexrest/v1/topic/{id}?tag=true
         endpoint = f"topic/{theme_id}?tag=true"
+        return self.get(endpoint)
+    
+    def fetch_character(self, character_id: str) -> Dict[str, Any]:
+        """
+        Retrieves detailed information for a specific character by its ID.
+        
+        Args:
+            character_id: The unique ID of the character to retrieve.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response containing the character details.
+        """
+        endpoint = "character/" + character_id
         return self.get(endpoint)
     
     def _clean_search_results(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
@@ -915,7 +1005,7 @@ class ClubClient:
         }
         
         # 1. Perform the raw POST request
-        raw_response = self.post("search", json_data=search_payload)
+        raw_response = self.post("search", payload=search_payload)
         
         # 2. Clean the raw response before returning
         return self._clean_search_results(raw_response)
@@ -983,31 +1073,42 @@ class ClubClient:
         }
 
         # 2. Perform the raw POST request
-        raw_response = self.post("search", json_data=search_payload)
+        raw_response = self.post("search", payload=search_payload)
         
         # 3. Clean the raw response before returning
         return self._clean_search_results(raw_response)
     
-    def fetch_comments(self, related_id: str, page_number: int = 1, page_size: int = 10) -> Dict[str, Any]:
+    def fetch_comments(self, related_id: str = None, page_number: int = 1, page_size: int = 10) -> Dict[str, Any]:
         """
-        Fetches a paginated list of comments related to a specific content item or group.
+        Fetches a paginated list of comments. Can fetch comments related to a 
+        specific content item or fetch a general list of comments if no ID is provided.
         
         Args:
-            related_id: The ID of the content item (e.g., episode, grouping) the comments belong to.
+            related_id: The ID of the content item (e.g., episode, grouping) the comments 
+                        belong to. Defaults to None, in which case the API should return 
+                        a general list.
             page_number: The page number to retrieve. Defaults to 1.
             page_size: The number of results per page. Defaults to 10.
             
         Returns:
             Dict[str, Any]: The parsed JSON response containing the comments.
+        
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails.
         """
-        payload = {
-            "relatedToId": related_id,
+        
+        json_data = {
             "pageNumber": page_number,
             "pageSize": page_size,
             "orderBy": "CreatedDate DESC"
         }
+
+        # Only include 'relatedToId' in the payload if a related_id was actually passed.
+        if related_id is not None:
+            json_data["relatedToId"] = related_id
+
         # POST to: apexrest/v1/comment/search
-        return self.post("comment/search", json_data=payload)
+        return self.post("comment/search", payload=json_data)
 
     def post_comment(self, message: str, related_id: str) -> Dict[str, Any]:
         """
@@ -1029,7 +1130,7 @@ class ClubClient:
         if not hasattr(self, 'viewer_id') or not self.viewer_id:
             raise ValueError("Cannot post comment: viewer_id (profile ID) is not set. Ensure the client is authenticated and a profile is selected.")
 
-        payload = {
+        comment_payload = {
             "comment": {
                 # This ID links the comment to the content item
                 "relatedToId": related_id, 
@@ -1040,7 +1141,7 @@ class ClubClient:
         }
         # POST to: apexrest/v1/comment
         # ClubClient's post method will handle authentication and retries
-        return self.post("comment", json_data=payload)
+        return self.post("comment", payload=comment_payload)
     
     def post_reply(self, message: str, related_id: str) -> Dict[str, Any]:
         """
@@ -1062,7 +1163,7 @@ class ClubClient:
         if not hasattr(self, 'viewer_id') or not self.viewer_id:
             raise ValueError("Cannot post comment: viewer_id (profile ID) is not set. Ensure the client is authenticated and a profile is selected.")
 
-        payload = {
+        reply_payload = {
                 # This ID links the comment to the content item
                 "relatedToId": related_id, 
                 # This ID identifies the profile posting the comment
@@ -1071,7 +1172,7 @@ class ClubClient:
         }
         # POST to: apexrest/v1/comment
         # ClubClient's post method will handle authentication and retries
-        return self.post("comment", json_data=payload)
+        return self.post("comment", payload=reply_payload)
     
     def fetch_bookmarks(self) -> Dict[str, Any]:
         """
@@ -1113,19 +1214,19 @@ class ClubClient:
         
         # POST to: apexrest/v1/bookmark
         # Use the ClubClient's authenticated POST method
-        return self.post("bookmark", json_data=payload)
+        return self.post("bookmark", payload=payload)
     
-    def create_playlist(self, name: str, image_url: str, ids: str) -> str:
+    def create_playlist(self, json_payload: dict) -> str:
         """
-        Creates a new content grouping (playlist) and returns its ID.
+        Creates a new content grouping (playlist) by directly posting the 
+        provided JSON payload to the /v1/contentgrouping endpoint.
 
-        The playlist is created via a POST request to the /v1/contentgrouping endpoint.
+        This simplified version bypasses argument construction and requires
+        the caller to provide the complete request body.
 
         Args:
-            name: The desired name of the new playlist.
-            image_url: The URL for the playlist's thumbnail image.
-            ids: A comma-separated string of Content IDs (e.g., episode IDs)
-                 to include in the playlist (e.g., "a35..., a35..., ...").
+            json_payload: A dictionary representing the full request body 
+                        for the API call, e.g., {"contentGroupings": [ ... ]}.
 
         Returns:
             str: The ID of the newly created playlist (e.g., 'a31Up000007WmVJIA0').
@@ -1134,43 +1235,29 @@ class ClubClient:
             RuntimeError: If authentication fails.
             requests.exceptions.HTTPError: If the API request fails.
             KeyError: If the API response structure is unexpected.
+            ValueError: If the required payload structure is not present.
         """
-        # --- ID Handling ---
-        # 1. Split the string of IDs by comma and strip whitespace.
-        # 2. Filter out any empty strings that might result from extra commas.
-        # 3. Map the clean IDs into the required API format: [{"id": "..."}]
         
-        id_list = [
-            {"id": content_id.strip()} 
-            for content_id in ids.split(',') if content_id.strip()
-        ]
-        
-        if not id_list:
-            raise ValueError("No valid Content IDs provided in the 'ids' argument.")
+        # --- Validation and Logging ---
+        try:
+            # Attempt to extract the playlist name for logging purposes
+            playlist_name = json_payload['contentGroupings'][0]['name']
+            num_items = len(json_payload['contentGroupings'][0]['contentList'])
+            log_info = f"Name: {playlist_name}, Items: {num_items}"
+        except (KeyError, IndexError):
+            # If structure is missing, just use a generic log and raise a clear error
+            logger.warning("JSON payload does not conform to expected 'contentGroupings[0]['name']' structure.")
+            log_info = "Malformed Payload (details missing)"
+            
+        if not json_payload.get('contentGroupings'):
+            raise ValueError("JSON payload must contain the 'contentGroupings' key.")
 
-        # --- Payload Construction ---
-        request_payload = {
-            "metadata": {},
-            "errors": [],
-            "contentGroupings": [
-                {
-                    "name": name,
-                    "imageURL": image_url,
-                    # Note: The API does not seem to require the 'Type' field for creation,
-                    # but typically these groupings are 'Playlist' or 'Custom List'.
-                    # We will stick to the minimal structure requested.
-                    "contentList": id_list
-                }
-            ]
-        }
-        
-        log_info = f"Name: {name}, Items: {len(id_list)}"
-        logger.info(f"Attempting to create new playlist: ({log_info})")
+        logger.info(f"Attempting to create new playlist with direct JSON payload: ({log_info})")
 
         # --- API Call ---
         # The base URL and API prefix are handled by self.post
         # POST to: apexrest/v1/contentgrouping
-        response = self.post("contentgrouping", json_data=request_payload)
+        response = self.post("contentgrouping", payload=json_payload)
         
         # --- Response Parsing ---
         # Expected response structure:
@@ -1179,7 +1266,7 @@ class ClubClient:
         try:
             # Extract the ID of the first (and only) grouping in the response list
             playlist_id = response['contentGroupings'][0]['id']
-            logger.info(f"Playlist '{name}' successfully created with ID: {playlist_id}")
+            logger.info(f"Playlist successfully created with ID: {playlist_id}")
             return playlist_id
             
         except (KeyError, IndexError) as e:
@@ -1187,27 +1274,25 @@ class ClubClient:
             logger.debug(f"Raw Response: {response}")
             raise KeyError("API response was missing the expected 'contentGroupings[0]['id']' field.")
         
-    def fetch_signed_cookie(self, content_type: str) -> str:
+    def fetch_signed_cookie(self, content_type: str = 'audio') -> str:
         """
         Fetches the content data for a known audio or video test ID, extracts the 
-        signed cookie URL, and returns only the query string portion.
+        signed cookie URL, and returns the query string portion *prefixed with '?'*.
 
         Args:
             content_type: The type of content to fetch: 'audio' or 'video'.
 
         Returns:
-            str: The signed cookie URL query string (Policy=...&Signature=...&Key-Pair-Id=...).
+            str: The signed cookie URL query string, including the leading '?' (e.g., ?Policy=...&Signature=...&Key-Pair-Id=...).
 
         Raises:
             ValueError: If an invalid content_type is provided or the cookie URL is missing.
             requests.exceptions.HTTPError: If the underlying API request fails.
         """
         if content_type.lower() == 'audio':
-            # Episode: The Case of the Missing Train Car
             content_id = "a354W0000046V5fQAE"
             logger.info("Fetching signed cookie for known audio content ID.")
         elif content_type.lower() == 'video':
-            # Video: Behind the Scenes: Album 73 - The Long Road Home
             content_id = "a354W0000046SHtQAM"
             logger.info("Fetching signed cookie for known video content ID.")
         else:
@@ -1222,12 +1307,6 @@ class ClubClient:
         # The API response structure varies, but often the signed URL is nested under 'media' or similar.
         signed_cookie_url = content_data.get('signed_cookie') 
         
-        # Check a common alternative path if the top-level 'signed_cookie' is missing.
-        # Although the key name suggests it should be top-level, it's good practice to check common nesting.
-        if not signed_cookie_url:
-             # Check if it's nested under a 'media' or 'player' key, or is the content URL itself
-            signed_cookie_url = content_data.get('content_url')
-        
         if not signed_cookie_url:
             logger.error("Signed cookie URL not found in API response.")
             raise ValueError("API response for content ID contains no 'signed_cookie' or similar URL.")
@@ -1238,11 +1317,14 @@ class ClubClient:
         
         # The query component is the part after the '?'
         if not parsed_url.query:
-             logger.error(f"URL contains no query parameters: {signed_cookie_url}")
-             raise ValueError("The retrieved signed cookie URL did not contain a query string.")
-             
+            logger.error(f"URL contains no query parameters: {signed_cookie_url}")
+            raise ValueError("The retrieved signed cookie URL did not contain a query string.")
+            
         logger.info(f"Successfully extracted signed cookie query for ID: {content_id}")
-        return parsed_url.query
+        
+        # *** MODIFICATION HERE ***
+        # Prepend the '?' to the query string before returning.
+        return '?' + parsed_url.query
         
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
@@ -1306,13 +1388,13 @@ class ClubClient:
             logger.error(f"GET request failed for {full_endpoint}: {e}")
             raise
 
-    def post(self, endpoint: str, json_data: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def post(self, endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Performs an authenticated POST request to a generalized API endpoint with JSON data.
         
         Args:
             endpoint: The relative API path (e.g., 'contentgrouping/search').
-            json_data: The JSON dictionary to be sent in the request body.
+            payload: The JSON dictionary to be sent in the request body.
             headers: Optional dictionary of headers to override or add for this request.
             
         Returns:
@@ -1336,8 +1418,8 @@ class ClubClient:
 
         def make_request():
             # Pass the custom headers to the request call
-            # Use json=json_data to automatically set Content-Type: application/json
-            response = self.session.post(url, json=json_data, headers=request_headers)
+            # Use json=payload to automatically set Content-Type: application/json
+            response = self.session.post(url, json=payload, headers=request_headers)
             return response
 
         try:
@@ -1365,13 +1447,13 @@ class ClubClient:
             logger.error(f"POST request failed for {full_endpoint}: {e}")
             raise
 
-    def put(self, endpoint: str, json_data: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def put(self, endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Performs an authenticated PUT request to a generalized API endpoint with JSON data.
         
         Args:
             endpoint: The relative API path (e.g., 'content').
-            json_data: The JSON dictionary to be sent in the request body.
+            payload: The JSON dictionary to be sent in the request body.
             headers: Optional dictionary of headers to override or add for this request.
             
         Returns:
@@ -1395,8 +1477,8 @@ class ClubClient:
 
         def make_request():
             # Pass the custom headers to the request call
-            # Use json=json_data to automatically set Content-Type: application/json
-            response = self.session.put(url, json=json_data, headers=request_headers)
+            # Use json=payload to automatically set Content-Type: application/json
+            response = self.session.put(url, json=payload, headers=request_headers)
             return response
 
         try:
