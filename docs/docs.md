@@ -28,6 +28,7 @@ More functions and methods might be added
 | `fetch_radio(content_type, page_number, page_size)` | ✅ | ✅ | Fetches the schedule of aired or upcoming radio episodes. (aired or upcoming) |
 | `fetch_content_groupings(page_number, page_size, type)`| ✅ | ✅ | Retrieves a paginated list of content groupings by type (e.g., all **Albums** or **Collections**). |
 | `fetch_characters(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of characters |
+| `fetch_character(character_id)` | ✅ | ✅ | Retrieves the detailed data for a specific character by its ID. |
 | `fetch_cast_and_crew(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of cast and crew |
 | `fetch_themes(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of themes |
 | `fetch_theme(theme_id)` | ✅ | ✅ | Retrieves the detailed data for a specific theme group item by its ID. |
