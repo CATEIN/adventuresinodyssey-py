@@ -23,15 +23,15 @@ More functions and methods might be added
 | Function/Method | `AIOClient` (Public) | `ClubClient` (Authenticated) | Description |
 | :--- | :---: | :---: | :--- |
 | **Content Retrieval** | | | |
-| `fetch_content(id, page_type)` | ✅ | ✅ | Retrieves the detailed data for a specific content item by its ID. |
+| `fetch_content(content_id, page_type)` | ✅ | ✅ | Retrieves the detailed data for a specific content item by its ID. |
+| `fetch_theme(theme_id)` | ✅ | ✅ | Retrieves the detailed data for a specific theme group item by its ID. |
+| `fetch_character(character_id)` | ✅ | ✅ | Retrieves the detailed data for a specific character by its ID. |
 |`fetch_content_group(id)` | ✅ | ✅ | Retrieves the detailed data for a specific content group item by its ID.
 | `fetch_radio(content_type, page_number, page_size)` | ✅ | ✅ | Fetches the schedule of aired or upcoming radio episodes. (aired or upcoming) |
 | `fetch_content_groupings(page_number, page_size, type)`| ✅ | ✅ | Retrieves a paginated list of content groupings by type (e.g., all **Albums** or **Collections**). |
 | `fetch_characters(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of characters |
-| `fetch_character(character_id)` | ✅ | ✅ | Retrieves the detailed data for a specific character by its ID. |
 | `fetch_cast_and_crew(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of cast and crew |
 | `fetch_themes(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of themes |
-| `fetch_theme(theme_id)` | ✅ | ✅ | Retrieves the detailed data for a specific theme group item by its ID. |
 | `cache_episodes()` | ✅ | ✅ | Caches all episodes by fetching all albums and returns a flattened list. |
 | `search_all(query)` | ✅ | ✅ | searches for everything |
 | `search(query, search_objects)` | ✅ | ✅ | searches |
@@ -50,3 +50,26 @@ More functions and methods might be added
 | `put(endpoint, payload, headers)` | ❌ | ✅ | Performs a general **PUT** request |
 
 ---
+
+## fetch_content(content_id, page_type)
+```python
+from adventuresinodyssey import AIOClient
+client = AIOClient()
+episode = client.fetch_content(content_id="a35Uh0000005suDIAQ", page_type="promo")
+print(episode["short_name"])
+```
+
+## fetch_character(character_id)
+```python
+from adventuresinodyssey import AIOClient
+client = AIOClient()
+character = client.fetch_character(character_id="a2t4W000005cKTMQA2")
+print(character["characters"][0]["first_name"])
+```
+## fetch_theme(theme_id)
+```python
+from adventuresinodyssey import AIOClient
+client = AIOClient()
+theme = client.fetch_theme(theme_id="a3H4W000004OhqnUAC")
+print(theme["topics"][0]["name"])
+```
