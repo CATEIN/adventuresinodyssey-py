@@ -21,3 +21,13 @@ pip install mpv
 ```
 
 *windows users have to add mpv to PATH or include it in the project folder to use it.
+
+## [thumbnail.py](/examples/thumbnail.py)
+Download the thumbnail for a content page.
+
+Usage:
+
+```bash
+python thumbnail.py {content_url_here}
+```
+(make sure the url is a content url! https://app.adventuresinodyssey.com/content/... )
