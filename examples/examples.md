@@ -28,6 +28,6 @@ Download the thumbnail for a content page.
 Usage:
 
 ```bash
-python thumbnail.py {content_url_here}
+python thumbnail.py content_url_here
 ```
 (make sure the url is a content url! https://app.adventuresinodyssey.com/content/... )
