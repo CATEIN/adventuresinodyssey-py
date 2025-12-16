@@ -373,6 +373,43 @@ class AIOClient:
         endpoint = "character/" + character_id
         return self.get(endpoint)
     
+    def fetch_author(self, author_id: str) -> Dict[str, Any]:
+        """
+        Retrieves detailed information for a specific author by its ID.
+        
+        Args:
+            author_id: The unique ID of the author to retrieve.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response containing the character details.
+        """
+        endpoint = "author/" + author_id
+        return self.get(endpoint)
+    
+    def fetch_home_playlists(self) -> Dict[str, Any]:
+        """
+        Fetches newish content groups from the API.
+        
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        return self.get("viewer/home?personal_playlists=true&playlists=true")
+    
+    def fetch_carousel(self) -> Dict[str, Any]:
+        """
+        Fetches the carousel.
+        
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        return self.get("viewer/home?carousel=true&notifications=true")
+    
     def _clean_search_results(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
         """
         Cleans and flattens the nested column structure of the search API response.

@@ -5,10 +5,12 @@ Adventures in Odyssey API Authentication Client
 import logging
 import json
 from pathlib import Path
+from collections import Counter
 from typing import Optional, Dict, Any, List, Union
 from urllib.parse import urlencode, urlparse, parse_qs
 import requests
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PlaywrightTimeout
+from .aioclient import AIOClient
 
 # Configure logging
 logging.basicConfig(
@@ -30,7 +32,7 @@ DEFAULT_FIELDS = {
 }
 
 
-class ClubClient:
+class ClubClient(AIOClient):
     """
     Authentication client for Adventures in Odyssey API. 
     Handles login, token management, and authenticated API requests.
@@ -47,6 +49,9 @@ class ClubClient:
             profile_username: Optional. The username of the profile to select after account login. Required if viewer_id is not set.
             pin: Optional. The PIN for the selected profile. Defaults to '0000' if not provided.
         """
+
+        super().__init__()
+
         # User credentials
         self.email = email
         self.password = password
@@ -590,179 +595,6 @@ class ClubClient:
             requests.exceptions.HTTPError: If the API request fails after all retry attempts.
         """
         return self.get(f"badges/{badge_id}")
-    
-    def fetch_radio(self, content_type: str = 'aired', page_number: int = 1, page_size: int = 5) -> Dict[str, Any]:
-        """
-        Fetches the schedule of aired or upcoming radio episodes.
-        
-        Args:
-            content_type: The radio schedule type: 'aired' (default) or 'upcoming'.
-            page_number: The 1-based index of the page to retrieve. Defaults to 1.
-            page_size: The number of results per page. Defaults to 5.
-            
-        Returns:
-            Dict[str, Any]: The parsed JSON response from the API.
-            
-        Raises:
-            ValueError: If an invalid content_type is provided.
-            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
-        """
-        
-        # Base query parameters common to both aired and upcoming searches
-        params = {
-            'content_type': 'Audio',
-            'content_subtype': 'Episode',
-            'community': 'Adventures In Odyssey',
-            'pagenum': page_number,
-            'pagecount': page_size,
-        }
-        
-        # Set type-specific parameters
-        if content_type == 'aired':
-            params['orderby'] = 'Recent_Air_Date__c DESC'
-            params['radio_page_type'] = 'aired'
-            log_info = "Aired Radio Episodes"
-        elif content_type == 'upcoming':
-            params['orderby'] = 'Recent_Air_Date__c ASC'
-            params['radio_page_type'] = 'upcoming'
-            log_info = "Upcoming Radio Episodes"
-        else:
-            raise ValueError(f"Invalid content_type '{content_type}'. Must be 'aired' or 'upcoming'.")
-            
-        logger.info(f"Attempting to fetch {log_info} (Page {page_number}, Size {page_size})")
-
-        # The endpoint is 'content/search', and the generalized get method handles the base URL.
-        return self.get("content/search", params=params)
-    
-    def cache_episodes(self, grouping_type: str = "Album") -> List[Dict[str, Any]]:
-        """
-        Retrieves all available audio episodes from the specified content grouping type 
-        (e.g., "Album", "Episode Home"), cleans the data, and returns a flattened list. 
-        Excludes episodes starting with "BONUS!".
-
-        This function automatically handles pagination across all pages for the grouping type.
-
-        Args:
-            grouping_type (str): The type of content grouping to fetch episodes from 
-                                (e.g., "Album", "Episode Home"). Defaults to "Album".
-
-        Returns:
-            List[Dict[str, Any]]: A flat list of cleaned episode dictionaries.
-        """
-
-        logger.info(f"Starting process to cache all episodes (fetching all '{grouping_type}' pages).")
-        
-        all_episodes = []
-        current_page = 1
-        total_pages = 1  # Will be updated after the first API call
-
-        # Loop until the current page exceeds the total number of pages
-        while current_page <= total_pages:
-            logger.debug(f"Fetching '{grouping_type}' page {current_page} of {total_pages}...")
-            
-            # Fetch content groupings (e.g., Albums or Episode Home)
-            # Use a large page size (100) to minimize the number of API calls
-            response = self.fetch_content_groupings(
-                grouping_type=grouping_type,  # <<< CHANGED TO USE ARGUMENT
-                page_number=current_page, 
-                page_size=100
-            )
-            
-            # Update total pages on the first request
-            if current_page == 1:
-                try:
-                    total_pages = response['metadata']['totalPageCount']
-                    logger.info(f"Total '{grouping_type}' pages to retrieve: {total_pages}")
-                except (KeyError, TypeError):
-                    logger.warning("Could not determine totalPageCount from metadata. Assuming only one page.")
-            
-            # Process the content groupings on the current page
-            content_groupings = response.get('contentGroupings', [])
-            
-            for content_grouping in content_groupings: # <<< RENAMED FROM 'album' for generality
-                # Use a generic name for the grouping ID and Name
-                grouping_id = content_grouping.get('id')
-                grouping_name = content_grouping.get('name', f'UNKNOWN {grouping_type.upper()}')
-                
-                if not grouping_id:
-                    logger.warning(f"Skipping {grouping_type} '{grouping_name}' due to missing ID.")
-                    continue
-
-                episode_list = content_grouping.get('contentList', [])
-                
-                for episode in episode_list:
-                    episode_name = episode.get('name', 'Untitled Episode')
-                    
-                    # 1. Filter out episodes starting with "BONUS!"
-                    if episode_name.startswith("BONUS!"):
-                        logger.debug(f"Skipping bonus episode: {episode_name}")
-                        continue
-
-                    # 2. Add the grouping ID to the episode dictionary
-                    # Note: Keeping the key as 'album_id' for consistency with previous usage
-                    clean_episode = episode.copy() 
-                    clean_episode['album_id'] = grouping_id # Still using 'album_id' key
-                    
-                    all_episodes.append(clean_episode)
-                    
-            current_page += 1
-
-        logger.info(f"Successfully cached {len(all_episodes)} clean episodes across {total_pages} pages.")
-        return all_episodes
-
-    def fetch_content_group(self, group_id: str) -> Dict[str, Any]:
-        """
-        Fetches detailed data for a content grouping (e.g., an album or series).
-        
-        Args:
-            group_id: The ID of the content grouping to fetch (e.g., 'a31Uh0000035T2rIAE').
-            
-        Returns:
-            Dict[str, Any]: The parsed JSON response from the API.
-            
-        Raises:
-            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
-        """
-        return self.get(f"contentgrouping/{group_id}")
-
-    def fetch_content_groupings(self, page_number: int = 1, page_size: int = 25, grouping_type: str = 'Album', payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        Searches for and fetches a paginated list of content groupings (e.g., albums/series).
-        
-        If 'payload' is provided, it is used directly as the POST body, overriding 
-        'page_number', 'page_size', and 'grouping_type'.
-        
-        Args:
-            page_number: The 1-based index of the page to retrieve. Defaults to 1.
-            page_size: The number of results per page. Defaults to 25.
-            grouping_type: The type of content grouping to search for: 'Album' (default), 'Series', 'Collection', 'Episode Home', etc.
-            payload: Optional. A complete request body (dictionary) to send instead of the default structured payload.
-            
-        Returns:
-            Dict[str, Any]: The parsed JSON response from the API.
-            
-        Raises:
-            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
-        """
-        
-        # Construct the payload based on arguments
-        if payload is not None:
-            # Use custom payload provided by the user
-            request_payload = payload
-            log_info = "custom payload"
-        else:
-            # Use structured payload based on function arguments
-            request_payload = {
-                "type": grouping_type,
-                "community": "Adventures in Odyssey",
-                "pageNumber": page_number,
-                "pageSize": page_size
-            }
-            log_info = f"Type: {grouping_type}, Page {page_number}, Size {page_size}"
-
-        logger.info(f"Attempting to fetch content groupings ({log_info})")
-        
-        return self.post("contentgrouping/search", request_payload)
             
     def send_progress(self, content_id: str, progress: int, status: str) -> Dict[str, Any]:
         """
@@ -805,54 +637,6 @@ class ClubClient:
             requests.exceptions.HTTPError: If the API request fails after all retry attempts.
         """
         return self.get("content/random")
-    
-    def fetch_characters(self, page_number: int = 1, page_size: int = 200) -> Dict[str, Any]:
-        """
-        Fetches a paginated list of characters (e.g., 'Whit', 'Connie', 'Eugene').
-        
-        Args:
-            page_number: The 1-based index of the page to retrieve. Defaults to 1.
-            page_size: The number of results per page. Defaults to 200.
-            
-        Returns:
-            Dict[str, Any]: The parsed JSON response from the API.
-            
-        Raises:
-            requests.exceptions.HTTPError: If the API request fails.
-        """
-        request_payload = {
-            "pageNumber": page_number,
-            "pageSize": page_size
-        }
-        
-        log_info = f"Page {page_number}, Size {page_size}"
-        logger.info(f"Attempting to fetch characters ({log_info})")
-        
-        return self.post("character/search", request_payload)
-
-    def fetch_cast_and_crew(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
-        """
-        Fetches a paginated list of cast and crew (authors).
-        
-        Args:
-            page_number: The 1-based index of the page to retrieve. Defaults to 1.
-            page_size: The number of results per page. Defaults to 25.
-            
-        Returns:
-            Dict[str, Any]: The parsed JSON response from the API.
-            
-        Raises:
-            requests.exceptions.HTTPError: If the API request fails.
-        """
-        request_payload = {
-            "pageNumber": page_number,
-            "pageSize": page_size
-        }
-        
-        log_info = f"Page {page_number}, Size {page_size}"
-        logger.info(f"Attempting to fetch cast and crew ({log_info})")
-        
-        return self.post("author/search", request_payload)
 
     def fetch_badges(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
         """
@@ -879,204 +663,6 @@ class ClubClient:
         
         return self.post("badge/search", request_payload)
     
-    def fetch_themes(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
-        """
-        Fetches a paginated list of themes (Topics) via a POST request.
-        
-        Args:
-            page_number: The page number to retrieve. Defaults to 1.
-            page_size: The number of results per page. Defaults to 25.
-            
-        Returns:
-            Dict[str, Any]: The parsed JSON response containing the list of themes.
-        """
-        themes_json = {
-            "pageNumber": page_number,
-            "pageSize": page_size
-        }
-        
-        # POST to: apexrest/v1/topic/search
-        return self.post("topic/search", payload=themes_json)
-
-    def fetch_theme(self, theme_id: str) -> Dict[str, Any]:
-        """
-        Retrieves detailed information for a specific theme (Topic) by its ID.
-        
-        Args:
-            theme_id: The unique ID of the theme (Topic) to retrieve.
-            
-        Returns:
-            Dict[str, Any]: The parsed JSON response containing the theme details.
-        """
-        # GET to: apexrest/v1/topic/{id}?tag=true
-        endpoint = f"topic/{theme_id}?tag=true"
-        return self.get(endpoint)
-    
-    def fetch_character(self, character_id: str) -> Dict[str, Any]:
-        """
-        Retrieves detailed information for a specific character by its ID.
-        
-        Args:
-            character_id: The unique ID of the character to retrieve.
-            
-        Returns:
-            Dict[str, Any]: The parsed JSON response containing the character details.
-        """
-        endpoint = "character/" + character_id
-        return self.get(endpoint)
-    
-    def _clean_search_results(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Cleans and flattens the nested column structure of the search API response.
-        
-        The API returns results in 'column1', 'column2', etc. with redundant metadata.
-        This function extracts and standardizes the key-value pairs.
-        """
-        cleaned_results = raw_results.copy()
-        
-        # Iterate through each object type (e.g., Content__c, Content_Grouping__c)
-        for obj_group in cleaned_results.get('resultObjects', []):
-            cleaned_group_results = []
-            
-            # Iterate through each individual search result within the group
-            for raw_result in obj_group.get('results', []):
-                cleaned_result = {'id': raw_result.get('id')}
-                
-                # Iterate through all 'column' keys (column1, column2, etc.)
-                for key, data in raw_result.items():
-                    if key.startswith('column') and isinstance(data, dict):
-                        # Use the API field name (e.g., 'Name', 'Subtype__c')
-                        api_name = data.get('name')
-                        value = data.get('value')
-                        
-                        if api_name:
-                            # Standardize field names for easier Python use (snake_case)
-                            # Example: 'Thumbnail_Small__c' -> 'thumbnail_small'
-                            if api_name.endswith('__c'):
-                                python_name = api_name[:-3].lower().replace('__', '_')
-                            else:
-                                python_name = api_name.lower()
-                                
-                            cleaned_result[python_name] = value
-
-                cleaned_group_results.append(cleaned_result)
-                
-            # Replace the old nested results with the new flat list
-            obj_group['results'] = cleaned_group_results
-            
-            # Remove redundant column metadata from the object group metadata
-            if 'metadata' in obj_group and 'fields' in obj_group['metadata']:
-                del obj_group['metadata']['fields']
-                
-        return cleaned_results
-
-
-    def search_all(self, query: str) -> Dict[str, Any]:
-        """
-        Performs a comprehensive, multi-object search across the API for a given query,
-        and cleans the results into a flat, readable dictionary format.
-        
-        Args:
-            query: The search term (e.g., "Whit's End").
-            
-        Returns:
-            Dict[str, Any]: The parsed, cleaned JSON response containing results.
-        """
-        if not query:
-            logger.warning("Search query is empty. Returning empty result.")
-            return {"searchTerm": "", "resultObjects": []}
-
-        search_payload = {
-            "searchTerm": query,
-            "searchObjects": [
-                {"objectName": "Content__c", "pageNumber": 1, "pageSize": 9, 
-                 "fields": ["Name", "Thumbnail_Small__c", "Subtype__c", "Episode_Number__c"]},
-                {"objectName": "Content_Grouping__c", "pageNumber": 1, "pageSize": 9, 
-                 "fields": ["Name", "Image_URL__c", "Type__c"]},
-                {"objectName": "Topic__c", "pageNumber": 1, "pageSize": 9, 
-                 "fields": ["Name"]},
-                {"objectName": "Author__c", "pageNumber": 1, "pageSize": 9, 
-                 "fields": ["Name", "Profile_Image_URL__c"]},
-                {"objectName": "Character__c", "pageNumber": 1, "pageSize": 9, 
-                 "fields": ["Name", "Thumbnail_Small__c"]},
-                {"objectName": "Badge__c", "pageNumber": 1, "pageSize": 9, 
-                 "fields": ["Name", "Icon__c", "Type__c"]}
-            ]
-        }
-        
-        # 1. Perform the raw POST request
-        raw_response = self.post("search", payload=search_payload)
-        
-        # 2. Clean the raw response before returning
-        return self._clean_search_results(raw_response)
-    
-    def search(self, 
-               query: str, 
-               search_objects: Union[str, List[Dict[str, Any]], None] = None
-               ) -> Dict[str, Any]:
-        """
-        Performs a flexible search across the API, allowing specification of object types,
-        pagination, and automatically correcting object names with '__c'.
-        
-        Args:
-            query: The search term (e.g., "whits flop").
-            search_objects: 
-                - str: Single object name (e.g., 'content'). Defaults to page 1, size 10.
-                - List[Dict]: List of object configurations.
-                - None: Defaults to searching only 'Content'.
-            
-        Returns:
-            Dict[str, Any]: The parsed, cleaned JSON response containing results.
-        """
-        if not query:
-            logger.warning("Search query is empty. Returning empty result.")
-            return {"searchTerm": "", "resultObjects": []}
-
-        # 1. Normalize and structure the object configurations
-        if search_objects is None:
-            config_list = [{"objectName": "Content", "pageNumber": 1, "pageSize": 10}]
-        elif isinstance(search_objects, str):
-            config_list = [{"objectName": search_objects, "pageNumber": 1, "pageSize": 10}]
-        else:
-            config_list = search_objects
-
-        final_search_objects = []
-        for config in config_list:
-            obj_name_raw = config.get('objectName', 'Content')
-
-            # --- FIX APPLIED HERE ---
-            # 1. Strip '__c' and make lowercase
-            # 2. Capitalize the main word (TitleCase)
-            # 3. Append the correct lowercase suffix '__c'
-            obj_name = obj_name_raw.lower().replace('__c', '')
-            obj_name = obj_name.title()
-            obj_name += '__c'
-            # --- END FIX ---
-
-            # Get pagination details
-            page_num = config.get('pageNumber', 1)
-            page_size = config.get('pageSize', 10)
-            
-            # Use predefined fields based on the correctly normalized object name
-            fields = DEFAULT_FIELDS.get(obj_name, ["Name"])
-
-            final_search_objects.append({
-                "objectName": obj_name,
-                "pageNumber": page_num,
-                "pageSize": page_size,
-                "fields": fields
-            })
-            
-        search_payload = {
-            "searchTerm": query,
-            "searchObjects": final_search_objects
-        }
-
-        # 2. Perform the raw POST request
-        raw_response = self.post("search", payload=search_payload)
-        
-        # 3. Clean the raw response before returning
-        return self._clean_search_results(raw_response)
     
     def fetch_comments(self, related_id: str = None, page_number: int = 1, page_size: int = 10) -> Dict[str, Any]:
         """
@@ -1109,6 +695,130 @@ class ClubClient:
 
         # POST to: apexrest/v1/comment/search
         return self.post("comment/search", payload=json_data)
+    
+    def find_comment_pages(self) -> List[Dict[str, Any]]:
+        """
+        Fetches the latest comments, traces replies back to their root content page,
+        and returns a list of unique related page IDs, types, and names, 
+        sorted by the frequency of their appearance (most commented pages first).
+        
+        All root comments and replies found in the sample are counted toward the page.
+        """
+        
+        logger.info("Starting process to find unique comment pages (including replies).")
+        
+        try:
+            # Fetch comments (using a large page size for better thread coverage)
+            response: Dict[str, Any] = self.fetch_comments(page_size=100)
+        except Exception as e:
+            logger.error(f"Failed to fetch comments during page lookup: {e}")
+            return [] 
+        
+        comments = response.get("comments", [])
+        
+        if not comments:
+            logger.warning("No comments found in the API response.")
+            return []
+            
+        logger.debug(f"Successfully retrieved {len(comments)} comments.")
+
+        # --- STEP 1: Index all comments for efficient tracing ---
+        # Map: Comment ID -> Full Comment Object
+        comment_index: Dict[str, Dict[str, Any]] = {
+            comment['id']: comment for comment in comments if 'id' in comment
+        }
+        
+        # --- STEP 2: Tracing Helper Function ---
+        def get_ultimate_page_info(
+            current_comment: Dict[str, Any]
+        ) -> Optional[tuple[str, str, str]]:
+            """
+            Recursively traces a comment's parent thread until the ultimate 
+            content page is found (relatedToObject != "Comment").
+            Returns (page_id, page_type, page_name) or None if the thread 
+            root is not in the current sample.
+            """
+            # Start with the current comment
+            comment_obj = current_comment
+            
+            # Use a safe loop to prevent infinite recursion, though unlikely here
+            max_depth = 5 
+            for _ in range(max_depth):
+                related_object = comment_obj.get("relatedToObject")
+                
+                # Check if we have hit the root comment (attached to a page)
+                if related_object and related_object != "Comment":
+                    page_id = comment_obj.get("relatedToId")
+                    page_name = comment_obj.get("relatedToName")
+                    
+                    if page_id and page_name:
+                        return (page_id, related_object, page_name)
+                    else:
+                        # Root found, but details are missing (shouldn't happen)
+                        return None 
+
+                # If it is a reply, we must trace back
+                elif related_object == "Comment":
+                    parent_id = comment_obj.get("inReplyToCommentId")
+                    
+                    if not parent_id:
+                        # Reply has no parent ID, stop tracing
+                        return None
+                        
+                    # Look up the parent in the index
+                    parent_comment = comment_index.get(parent_id)
+                    
+                    if parent_comment:
+                        # Found parent in the sample, continue tracing
+                        comment_obj = parent_comment
+                        continue
+                    else:
+                        # Parent not found in the sample (outside the 100), stop tracing
+                        return None
+                
+                # Default case for unexpected structure
+                return None 
+            
+            # If max depth is reached
+            return None
+
+        # --- STEP 3: Count and Map All Comments (including replies) ---
+        page_counts = Counter()
+        # Map: Page ID -> (Page Type, Page Name)
+        page_details_map: Dict[str, tuple[str, str]] = {} 
+
+        for comment in comments:
+            page_info = get_ultimate_page_info(comment)
+            
+            if page_info:
+                page_id, page_type, page_name = page_info
+                
+                # 1. Count: Increment the count for the ultimate page ID
+                page_counts[page_id] += 1
+                
+                # 2. Map: Store page details (Name and Type)
+                if page_id not in page_details_map:
+                    page_details_map[page_id] = (page_type, page_name)
+
+        # --- STEP 4: Format the final output ---
+        
+        # Sort the unique page IDs by count (most frequent first)
+        sorted_page_ids = sorted(page_counts.items(), key=lambda item: item[1], reverse=True)
+        
+        result: List[Dict[str, Any]] = []
+        for page_id, count in sorted_page_ids:
+            page_type, page_name = page_details_map.get(page_id, ("Unknown Type", "Unknown Name"))
+            
+            result.append({
+                "id": page_id,
+                "name": page_name,
+                "page_type": page_type,
+                "comment_count": count
+            })
+            
+        logger.info(f"Found {len(result)} unique pages with comments (total comments counted: {sum(page_counts.values())}).")
+        
+        return result
 
     def post_comment(self, message: str, related_id: str) -> Dict[str, Any]:
         """
