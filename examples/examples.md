@@ -1,5 +1,7 @@
 # Example programs
 
+# AIOClient
+
 ## [bedtime.py](/examples/bedtime.py)
 Plays the newest radio episode every night at 8:00. Requires `mpv` and `schedule`
 
@@ -31,3 +33,29 @@ Usage:
 python thumbnail.py content_url_here
 ```
 (make sure the url is a content url! https://app.adventuresinodyssey.com/content/... )
+
+# ClubClient
+
+Assumes you have a .env file like:
+
+```bash
+AIO_EMAIL=email_here
+AIO_PASSWORD=password_here
+AIO_PROFILE_USERNAME=username_here
+AIO_PIN=pin_here_or_0000
+# optional but good
+AIO_VIEWER_ID=profile_id_here
+```
+
+## [player.py](/examples/player.py)
+
+A simple player in the terminal with a queue system. Reqiures `mpv` and `textual`
+
+
+```bash
+pip install mpv
+```
+
+```bash
+pip install textual
+```
