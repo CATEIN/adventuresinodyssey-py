@@ -36,7 +36,7 @@ python thumbnail.py content_url_here
 
 # ClubClient
 
-Assumes you have a .env file like:
+These programs require `python-dotenv` and .env file like:
 
 ```bash
 AIO_EMAIL=email_here
