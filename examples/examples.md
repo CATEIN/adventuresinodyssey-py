@@ -49,7 +49,7 @@ AIO_VIEWER_ID=profile_id_here
 
 ## [player.py](/examples/player.py)
 
-A simple player in the terminal with a queue system. Reqiures `mpv` and `textual`
+A simple player in the terminal with a queue system. It caches all the episodes and uses a signed cookie to load audio. Reqiures `mpv` and `textual`
 
 
 ```bash
