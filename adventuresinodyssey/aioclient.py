@@ -106,7 +106,7 @@ class AIOClient:
             logger.error(f"Failed to fetch content ID {content_id} (Page Type: {page_type}): {e}")
             raise
         
-    def fetch_radio(self, content_type: str = 'aired', page_number: int = 1, page_size: int = 5) -> Dict[str, Any]:
+    def fetch_radio(self, page_type: str = 'aired', page_number: int = 1, page_size: int = 5) -> Dict[str, Any]:
         """
         Fetches the schedule of aired or upcoming radio episodes.
         
@@ -133,16 +133,16 @@ class AIOClient:
         }
         
         # Set type-specific parameters
-        if content_type == 'aired':
+        if page_type == 'aired':
             params['orderby'] = 'Recent_Air_Date__c DESC'
             params['radio_page_type'] = 'aired'
             log_info = "Aired Radio Episodes"
-        elif content_type == 'upcoming':
+        elif page_type == 'upcoming':
             params['orderby'] = 'Recent_Air_Date__c ASC'
             params['radio_page_type'] = 'upcoming'
             log_info = "Upcoming Radio Episodes"
         else:
-            raise ValueError(f"Invalid content_type '{content_type}'. Must be 'aired' or 'upcoming'.")
+            raise ValueError(f"Invalid content_type '{page_type}'. Must be 'aired' or 'upcoming'.")
             
         logger.info(f"Attempting to fetch {log_info} (Page {page_number}, Size {page_size})")
 
@@ -153,7 +153,7 @@ class AIOClient:
         """
         Retrieves all available audio episodes from the specified content grouping type 
         (e.g., "Album", "Episode Home"), cleans the data, and returns a flattened list. 
-        Excludes episodes starting with "BONUS!".
+        Excludes episodes starting with "BONUS".
 
         This function automatically handles pagination across all pages for the grouping type.
 
@@ -178,7 +178,7 @@ class AIOClient:
             # Fetch content groupings (e.g., Albums or Episode Home)
             # Use a large page size (100) to minimize the number of API calls
             response = self.fetch_content_groupings(
-                grouping_type=grouping_type,  # <<< CHANGED TO USE ARGUMENT
+                grouping_type=grouping_type,
                 page_number=current_page, 
                 page_size=100
             )
@@ -208,8 +208,8 @@ class AIOClient:
                 for episode in episode_list:
                     episode_name = episode.get('name', 'Untitled Episode')
                     
-                    # 1. Filter out episodes starting with "BONUS!"
-                    if episode_name.startswith("BONUS!"):
+                    # 1. Filter out episodes starting with "BONUS"
+                    if episode_name.startswith("BONUS"):
                         logger.debug(f"Skipping bonus episode: {episode_name}")
                         continue
 

@@ -926,6 +926,18 @@ class ClubClient(AIOClient):
         # Use the ClubClient's authenticated POST method
         return self.post("bookmark", payload=payload)
     
+    def fetch_profiles(self) -> Dict[str, Any]:
+        """
+        Fetches the profiles.
+        
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        return self.get("viewer")
+    
     def create_playlist(self, json_payload: dict) -> str:
         """
         Creates a new content grouping (playlist) by directly posting the 
@@ -983,6 +995,32 @@ class ClubClient(AIOClient):
             logger.error(f"Failed to parse playlist ID from API response: {e}")
             logger.debug(f"Raw Response: {response}")
             raise KeyError("API response was missing the expected 'contentGroupings[0]['id']' field.")
+        
+    def fetch_playlists(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
+        """
+        Fetches the custom playlists made by current user.
+        
+        Args:
+            page_number: The 1-based index of the page to retrieve. Defaults to 1.
+            page_size: The number of results per page. Defaults to 25.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails.
+        """
+        
+        request_payload = {
+                "type": "Playlist",
+                "community": "Adventures in Odyssey",
+                "pageNumber": page_number,
+                "pageSize": page_size,
+                "viewer_id": self.viewer_id,
+            }
+        
+        # Uses the unauthenticated post helper
+        return self.post("contentgrouping/search", request_payload)
         
     def fetch_signed_cookie(self, content_type: str = 'audio') -> str:
         """
@@ -1215,4 +1253,64 @@ class ClubClient(AIOClient):
 
         except requests.exceptions.HTTPError as e:
             logger.error(f"PUT request failed for {full_endpoint}: {e}")
+            raise
+        
+    def delete(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """
+        Performs an authenticated DELETE request to a generalized API endpoint.
+
+        Args:
+            endpoint: The relative API path (e.g., 'content/123').
+            params: Optional dictionary of query parameters.
+            headers: Optional dictionary of headers to override or add for this request.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        if not self.ensure_authenticated():
+            raise RuntimeError(f"Cannot perform DELETE request to {endpoint}: Failed to authenticate user.")
+            
+        # Construct the full URL by prepending the base and the API prefix
+        full_endpoint = f"{API_PREFIX}{endpoint}"
+        url = f"{self.config['api_base']}{full_endpoint}"
+        
+        # --- HEADER OVERRIDE LOGIC ---
+        request_headers = self.session.headers.copy()
+        if headers:
+            request_headers.update(headers)
+        # -----------------------------
+
+        def make_request():
+            # Use the delete method of the session
+            response = self.session.delete(url, params=params, headers=request_headers)
+            return response
+
+        try:
+            logger.info(f"Attempting DELETE request to: {full_endpoint}")
+            response = make_request()
+
+            # Handle 401 Unauthorized
+            if response.status_code == 401:
+                logger.warning("DELETE request failed with 401 Unauthorized. Attempting re-authentication...")
+                if self.ensure_authenticated():
+                    logger.info("Re-authentication successful. Retrying request...")
+                    
+                    # Refresh headers with the new session token, then re-apply overrides
+                    request_headers = self.session.headers.copy()
+                    if headers:
+                        request_headers.update(headers)
+                    response = make_request()
+                else:
+                    response.raise_for_status() 
+
+            response.raise_for_status()
+            logger.info(f"DELETE request successful for: {full_endpoint}")
+            
+            return response.json()
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"DELETE request failed for {full_endpoint}: {e}")
             raise
