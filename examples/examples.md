@@ -13,7 +13,7 @@ pip install mpv
 pip install schedule
 ```
 
-*windows users have to add mpv to PATH or include it in the project folder to use it.
+*windows users have to add mpv to PATH.
 
 ## [promotrivia.py](/examples/promotrivia.py)
 A simple trivia game where the user guesses the name of an episode based on promo being played. Requires `mpv`
@@ -22,7 +22,7 @@ A simple trivia game where the user guesses the name of an episode based on prom
 pip install mpv
 ```
 
-*windows users have to add mpv to PATH or include it in the project folder to use it.
+*windows users have to add mpv to PATH.
 
 ## [thumbnail.py](/examples/thumbnail.py)
 Download the thumbnail for a content page.
@@ -59,3 +59,4 @@ pip install mpv
 ```bash
 pip install textual
 ```
+*windows users have to add mpv to PATH.
