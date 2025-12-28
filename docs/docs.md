@@ -52,10 +52,13 @@ More functions and methods might be added
 | `fetch_carousel()`|  ✅ | ✅ | Retrieves the carousel from home page |
 | `fetch_comments(related_id, page_number, page_size)` | ❌ | ✅ | Fetches comments from given ID. |
 | `bookmark(content_id)` | ❌ | ✅ | Bookmarks (favorites) given ID. |
+| `fetch_profiles()` | ❌ | ✅ | Fetches the profiles for the account |
+| `change_profile(viewer_id, pin)` | ❌ | ✅ | Changes the current profile to the provided one |
 | **Low-Level API Access** | | | |
 | `get(endpoint, params, headers)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles authentication and retry. |
 | `post(endpoint, payload, headers)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
 | `put(endpoint, payload, headers)` | ❌ | ✅ | Performs a general **PUT** request |
+| `delete(endpoint)` | ❌ | ✅ | Performs a general **DELETE** request |
 | **Custom functions** | | | |
 | `cache_episodes()` | ✅ | ✅ | Caches all episodes by fetching all albums and returns a flattened list. |
 | `fetch_signed_cookie(type)` | ❌ | ✅ | Fetches a signed cookie. Either audio or video |
