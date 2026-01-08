@@ -149,17 +149,18 @@ class AIOClient:
         # The endpoint is 'content/search', and the generalized get method handles the base URL.
         return self.get("content/search", params=params)
     
-    def cache_episodes(self, grouping_type: str = "Album") -> List[Dict[str, Any]]:
+    def cache_episodes(self, grouping_type: str = "Album", include_bonus: bool = False) -> List[Dict[str, Any]]:
         """
         Retrieves all available audio episodes from the specified content grouping type 
-        (e.g., "Album", "Episode Home"), cleans the data, and returns a flattened list. 
-        Excludes episodes starting with "BONUS".
+        (e.g., "Album", "Episode Home"), cleans the data, and returns a flattened list.
 
         This function automatically handles pagination across all pages for the grouping type.
 
         Args:
             grouping_type (str): The type of content grouping to fetch episodes from 
                                 (e.g., "Album", "Episode Home"). Defaults to "Album".
+        include_bonus (bool): If True, episodes starting with "BONUS" will be included.
+                               Defaults to False.
 
         Returns:
             List[Dict[str, Any]]: A flat list of cleaned episode dictionaries.
@@ -209,7 +210,7 @@ class AIOClient:
                     episode_name = episode.get('name', 'Untitled Episode')
                     
                     # 1. Filter out episodes starting with "BONUS"
-                    if episode_name.startswith("BONUS"):
+                    if not include_bonus and episode_name.startswith("BONUS"):
                         logger.debug(f"Skipping bonus episode: {episode_name}")
                         continue
 

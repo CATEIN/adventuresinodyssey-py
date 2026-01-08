@@ -4,7 +4,7 @@ Adventures in Odyssey API Package
 from .clubclient import ClubClient
 from .aioclient import AIOClient
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 __all__ = ["ClubClient", "AIOClient"]
 
 import logging
