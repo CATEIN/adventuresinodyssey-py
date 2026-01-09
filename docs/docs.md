@@ -18,8 +18,6 @@ set_logging_level('INFO')
 
 This document provides a quick reference for the public methods available in the `AIOClient` (unauthenticated access) and `ClubClient` (authenticated access) classes.
 
-More functions and methods might be added
-
 | Function | `AIOClient` (Public) | `ClubClient` (Authenticated) | Description |
 | :--- | :---: | :---: | :--- |
 | **Content page** | | | |
@@ -46,7 +44,7 @@ More functions and methods might be added
 | **Upload content** | | | |
 | `post_comment(message, related_id)` | ❌ | ✅ | Posts a comment to a given page ID. |
 | `post_reply(message, related_id)` | ❌ | ✅ | Posts a reply to a given comment ID. |
-| `create_playlist(json_payload)` | ❌ | ✅ | Creates a playlist with the provided data |
+| `create_playlist(json_payload)` | ❌ | ✅ | Creates a playlist with the provided data. Returns playlist id. |
 | `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Other** | | | |
 | `fetch_carousel()`|  ✅ | ✅ | Retrieves the carousel from home page |
@@ -60,7 +58,7 @@ More functions and methods might be added
 | `put(endpoint, payload, headers)` | ❌ | ✅ | Performs a general **PUT** request |
 | `delete(endpoint)` | ❌ | ✅ | Performs a general **DELETE** request |
 | **Custom functions** | | | |
-| `cache_episodes()` | ✅ | ✅ | Caches all episodes by fetching all albums and returns a flattened list. |
+| `cache_episodes(grouping_type, include_bonus)` | ✅ | ✅ | Caches all episodes by fetching all albums and returns a flattened list. |
 | `fetch_signed_cookie(type)` | ❌ | ✅ | Fetches a signed cookie. Either audio or video |
 | `find_comment_pages()` | ❌ | ✅ | Fetches comments and returns comment pages (most active are top) |
 
