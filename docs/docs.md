@@ -35,7 +35,7 @@ This document provides a quick reference for the public methods available in the
 | `fetch_themes(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of themes |
 | `fetch_characters(page_number, page_size)`|  ✅ | ✅ | Retrieves a paginated list of characters |
 | `fetch_content_groupings(page_number, page_size, type)`| ✅ | ✅ | Retrieves a paginated list of content groupings by type (e.g., all **Albums** or **Collections**). |
-| `fetch_radio(content_type, page_number, page_size)` | ✅ | ✅ | Fetches the schedule of aired or upcoming radio episodes. (aired or upcoming) |
+| `fetch_radio(page_type, page_number, page_size)` | ✅ | ✅ | Fetches the schedule of aired or upcoming radio episodes. (aired or upcoming) |
 | `fetch_bookmarks()`|  ✅ | ✅ | Retrieves a paginated list of bookmarks |
 | `fetch_badges(page_number, page_size)`| ❌ | ✅ | Retrieves a paginated list of badges |
 | **Search** | | | |
