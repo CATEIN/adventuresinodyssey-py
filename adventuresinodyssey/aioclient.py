@@ -33,12 +33,13 @@ class AIOClient:
     Does not handle login, profile selection, or token management.
     """
     
-    def __init__(self):
+    def __init__(self, timeout: int = 10):
         """
         Initialize the AIO API client configuration for unauthenticated access.
         """
         
         self.state = "ready"
+        self.timeout = timeout
         
         # Client configuration (minimal set)
         self.config = {
@@ -564,7 +565,7 @@ class AIOClient:
         # 3. Clean the raw response before returning
         return self._clean_search_results(raw_response)
         
-    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Performs an unauthenticated GET request to a generalized API endpoint.
         
@@ -578,22 +579,26 @@ class AIOClient:
         Raises:
             requests.exceptions.HTTPError: If the API request fails.
         """
-        # Construct the full URL by prepending the base and the API prefix
         full_endpoint = f"{API_PREFIX}{endpoint}"
         url = f"{self.config['api_base']}{full_endpoint}"
+        
+        # Use the provided timeout, or fall back to the class default
+        request_timeout = timeout if timeout is not None else self.timeout
 
         try:
-            logger.info(f"Attempting unauthenticated GET request to: {full_endpoint}")
-            response = self.session.get(url, params=params)
+            logger.info(f"Attempting GET request to: {full_endpoint}")
+            # Add the timeout parameter here
+            response = self.session.get(url, params=params, timeout=request_timeout)
             response.raise_for_status()
-            logger.info(f"GET request successful for: {full_endpoint}")
             return response.json()
-
+        except requests.exceptions.Timeout:
+            logger.error(f"Request to {full_endpoint} timed out.")
+            raise
         except requests.exceptions.HTTPError as e:
-            logger.error(f"GET request failed for {full_endpoint}: {e}")
+            logger.error(f"GET request failed: {e}")
             raise
 
-    def post(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def post(self, endpoint: str, payload: Dict[str, Any], timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Performs an unauthenticated POST request to a generalized API endpoint with JSON data.
         
@@ -607,18 +612,20 @@ class AIOClient:
         Raises:
             requests.exceptions.HTTPError: If the API request fails.
         """
-        # Construct the full URL by prepending the base and the API prefix
         full_endpoint = f"{API_PREFIX}{endpoint}"
         url = f"{self.config['api_base']}{full_endpoint}"
+        
+        request_timeout = timeout if timeout is not None else self.timeout
 
         try:
-            logger.info(f"Attempting unauthenticated POST request to: {full_endpoint}")
-            # Use json=payload to automatically set Content-Type: application/json
-            response = self.session.post(url, json=payload)
+            logger.info(f"Attempting POST request to: {full_endpoint}")
+            # Add the timeout parameter here
+            response = self.session.post(url, json=payload, timeout=request_timeout)
             response.raise_for_status()
-            logger.info(f"POST request successful for: {full_endpoint}")
             return response.json()
-
+        except requests.exceptions.Timeout:
+            logger.error(f"POST request to {full_endpoint} timed out.")
+            raise
         except requests.exceptions.HTTPError as e:
-            logger.error(f"POST request failed for {full_endpoint}: {e}")
+            logger.error(f"POST request failed: {e}")
             raise

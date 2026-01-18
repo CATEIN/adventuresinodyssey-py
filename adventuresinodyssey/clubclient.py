@@ -38,7 +38,7 @@ class ClubClient(AIOClient):
     Handles login, token management, and authenticated API requests.
     """
     
-    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None, auto_relogin: bool = True, config_path: str = 'club_session.json'):
+    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None, auto_relogin: bool = True, config_path: str = 'club_session.json', timeout: int = 10):
         """
         Initialize the AIO API client
         
@@ -51,6 +51,7 @@ class ClubClient(AIOClient):
         """
 
         super().__init__()
+        self.timeout = timeout
 
         # User credentials
         self.email = email
@@ -369,7 +370,7 @@ class ClubClient(AIOClient):
             'client_secret': self.config['client_secret']
         }
         
-        response = self.session.post(token_url, params=token_params)
+        response = self.session.post(token_url, params=token_params, timeout=10)
         response.raise_for_status()
         
         return response.json()
@@ -389,7 +390,7 @@ class ClubClient(AIOClient):
                 'client_secret': self.config['client_secret'],
             }
             
-            response = self.session.post(token_url, params=token_params)
+            response = self.session.post(token_url, params=token_params, timeout=10)
             
             if response.status_code == 200:
                 token_data = response.json()
@@ -431,7 +432,7 @@ class ClubClient(AIOClient):
                 'client_secret': self.config['client_secret']
             }
             
-            response = self.session.post(introspect_url, params=introspect_params)
+            response = self.session.post(introspect_url, params=introspect_params, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
@@ -873,12 +874,12 @@ class ClubClient(AIOClient):
         if not hasattr(self, 'viewer_id') or not self.viewer_id:
             raise ValueError("Cannot post comment: viewer_id (profile ID) is not set. Ensure the client is authenticated and a profile is selected.")
 
-        reply_payload = {
-                # This ID links the comment to the content item
-                "relatedToId": related_id, 
-                # This ID identifies the profile posting the comment
+        reply_payload = {"comment":
+                         {
+                "relatedToId": related_id,
                 "viewerProfileId": self.viewer_id, 
                 "message": message
+                         }
         }
         # POST to: apexrest/v1/comment
         # ClubClient's post method will handle authentication and retries
@@ -1074,7 +1075,7 @@ class ClubClient(AIOClient):
         # Prepend the '?' to the query string before returning.
         return '?' + parsed_url.query
         
-    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Performs an authenticated GET request to a generalized API endpoint.
 
@@ -1089,6 +1090,8 @@ class ClubClient(AIOClient):
         Raises:
             requests.exceptions.HTTPError: If the API request fails after all retry attempts.
         """
+        request_timeout = timeout if timeout is not None else self.timeout
+
         if not self.ensure_authenticated():
             raise RuntimeError(f"Cannot perform GET request to {endpoint}: Failed to authenticate user.")
             
@@ -1106,7 +1109,7 @@ class ClubClient(AIOClient):
 
         def make_request():
             # Pass the custom headers to the request call
-            response = self.session.get(url, params=params, headers=request_headers)
+            response = self.session.get(url, params=params, headers=request_headers, timeout=request_timeout)
             return response
 
         try:
@@ -1136,7 +1139,7 @@ class ClubClient(AIOClient):
             logger.error(f"GET request failed for {full_endpoint}: {e}")
             raise
 
-    def post(self, endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def post(self, endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Performs an authenticated POST request to a generalized API endpoint with JSON data.
         
@@ -1151,6 +1154,8 @@ class ClubClient(AIOClient):
         Raises:
             requests.exceptions.HTTPError: If the API request fails after all retry attempts.
         """
+        request_timeout = timeout if timeout is not None else self.timeout
+
         if not self.ensure_authenticated():
             raise RuntimeError(f"Cannot perform POST request to {endpoint}: Failed to authenticate user.")
             
@@ -1167,7 +1172,7 @@ class ClubClient(AIOClient):
         def make_request():
             # Pass the custom headers to the request call
             # Use json=payload to automatically set Content-Type: application/json
-            response = self.session.post(url, json=payload, headers=request_headers)
+            response = self.session.post(url, json=payload, headers=request_headers, timeout=request_timeout)
             return response
 
         try:
@@ -1195,7 +1200,7 @@ class ClubClient(AIOClient):
             logger.error(f"POST request failed for {full_endpoint}: {e}")
             raise
 
-    def put(self, endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def put(self, endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Performs an authenticated PUT request to a generalized API endpoint with JSON data.
         
@@ -1210,6 +1215,8 @@ class ClubClient(AIOClient):
         Raises:
             requests.exceptions.HTTPError: If the API request fails after all retry attempts.
         """
+        request_timeout = timeout if timeout is not None else self.timeout
+
         if not self.ensure_authenticated():
             raise RuntimeError(f"Cannot perform PUT request to {endpoint}: Failed to authenticate user.")
             
@@ -1226,7 +1233,7 @@ class ClubClient(AIOClient):
         def make_request():
             # Pass the custom headers to the request call
             # Use json=payload to automatically set Content-Type: application/json
-            response = self.session.put(url, json=payload, headers=request_headers)
+            response = self.session.put(url, json=payload, headers=request_headers, timeout=request_timeout)
             return response
 
         try:
@@ -1255,7 +1262,7 @@ class ClubClient(AIOClient):
             logger.error(f"PUT request failed for {full_endpoint}: {e}")
             raise
         
-    def delete(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def delete(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Performs an authenticated DELETE request to a generalized API endpoint.
 
@@ -1270,6 +1277,8 @@ class ClubClient(AIOClient):
         Raises:
             requests.exceptions.HTTPError: If the API request fails after all retry attempts.
         """
+        request_timeout = timeout if timeout is not None else self.timeout
+
         if not self.ensure_authenticated():
             raise RuntimeError(f"Cannot perform DELETE request to {endpoint}: Failed to authenticate user.")
             
@@ -1285,7 +1294,7 @@ class ClubClient(AIOClient):
 
         def make_request():
             # Use the delete method of the session
-            response = self.session.delete(url, params=params, headers=request_headers)
+            response = self.session.delete(url, params=params, headers=request_headers, timeout=request_timeout)
             return response
 
         try:
