@@ -3,6 +3,7 @@ Adventures in Odyssey API Unauthenticated Client
 Used for accessing publicly available content (e.g., promo content, radio schedule).
 """
 
+import re
 import logging
 from typing import Optional, Dict, Any, List, Union
 import requests
@@ -226,6 +227,202 @@ class AIOClient:
 
         logger.info(f"Successfully cached {len(all_episodes)} clean episodes across {total_pages} pages.")
         return all_episodes
+    
+    def cache_albums(self, grouping_type: str = "Album", include_club_exclusive: bool = True) -> List[Dict[str, Any]]:
+        """
+        Retrieves all available content groupings from the specified type 
+        (e.g., "Album", "Episode Home") and returns them as a flattened list.
+
+        Args:
+            grouping_type (str): The type of content grouping to fetch. Defaults to "Album".
+            If grouping_type is "Themes", it fetches albums and generates unique theme 
+            groupings based on episode tags.
+            include_club_exclusive (bool): If False, filters out "Club Season", 
+                                        "The Officer Harley Collection", and albums 
+                                        numbered #81 or higher. Defaults to True.
+
+        Returns:
+            List[Dict[str, Any]]: A flat list of content grouping dictionaries.
+        """
+        # If the user specifically wants Themes, we must fetch Albums first to extract tags
+        fetch_type = "Album" if grouping_type == "Themes" else grouping_type
+        
+        logger.info(f"Starting process to cache {grouping_type} (fetching {fetch_type} source).")
+        
+        all_groupings = []
+        current_page = 1
+        total_pages = 1
+        club_num_pattern = re.compile(r'#(\d+)')
+
+        while current_page <= total_pages:
+            logger.debug(f"Fetching '{fetch_type}' page {current_page} of {total_pages}...")
+            
+            response = self.fetch_content_groupings(
+                grouping_type=fetch_type,
+                page_number=current_page, 
+                page_size=100
+            )
+            
+            if current_page == 1:
+                try:
+                    total_pages = response['metadata']['totalPageCount']
+                except (KeyError, TypeError):
+                    total_pages = 1
+            
+            content_groupings = response.get('contentGroupings', [])
+
+            # --- Filtering Logic ---
+            if not include_club_exclusive:
+                filtered_batch = []
+                for item in content_groupings:
+                    name = item.get("name", "")
+                    is_excluded = "Club Season" in name or "The Officer Harley Collection" in name
+                    
+                    match = club_num_pattern.search(name)
+                    if match and int(match.group(1)) >= 81:
+                        is_excluded = True
+                    
+                    if not is_excluded:
+                        filtered_batch.append(item)
+                all_groupings.extend(filtered_batch)
+            else:
+                all_groupings.extend(content_groupings)
+            
+            current_page += 1
+
+        # --- Theme Generation Logic ---
+        if grouping_type == "Themes":
+            logger.info("Generating theme-based groupings from album episode tags...")
+            themes_map = {}
+
+            for grouping in all_groupings:
+                for episode in grouping.get("contentList", []):
+                    for tag in episode.get("tags", []):
+                        topic_id = tag.get("topic_id")
+                        if not topic_id:
+                            continue
+
+                        if topic_id not in themes_map:
+                            themes_map[topic_id] = {
+                                "type": "Theme",
+                                "name": tag.get("name"),
+                                "id": topic_id,
+                                "topic_id": topic_id,
+                                "contentList": [],
+                                "description": f"Episodes related to {tag.get('name')}",
+                                # Initialize other standard fields as empty/None
+                                "total_runtime": 0, "tags": [], "rating_count": 0,
+                                "is_editable": False, "is_bookmarked": False,
+                                "imageURL": None, "product_links": []
+                            }
+                        
+                        # Deduplicate episodes within the theme
+                        if episode.get("id") not in {ep['id'] for ep in themes_map[topic_id]["contentList"]}:
+                            themes_map[topic_id]["contentList"].append(episode)
+
+            # Return ONLY the themes
+            final_list = list(themes_map.values())
+            logger.info(f"Successfully generated {len(final_list)} theme groupings.")
+            return final_list
+
+        # Return standard groupings (Albums, etc.)
+        logger.info(f"Successfully cached {len(all_groupings)} {grouping_type}s.")
+        return all_groupings
+
+    def cache_content_groupings(self, generate_themes: bool = False) -> List[Dict[str, Any]]:
+            """
+            Retrieves all available content groupings and optionally generates 
+            "Theme" groupings based on episode tags.
+
+            Args:
+                generate_themes (bool): If True, parses all episodes within groupings to 
+                                    create new groupings categorized by theme tags.
+            """
+            logger.info("Starting process to cache all content groupings.")
+            
+            all_groupings = []
+            current_page = 1
+            total_pages = 1
+
+            # 1. Standard Pagination Loop
+            while current_page <= total_pages:
+                logger.debug(f"Fetching content groupings page {current_page} of {total_pages}...")
+                
+                payload = {
+                    "community": "Adventures in Odyssey",
+                    "pageNumber": current_page,
+                    "pageSize": 300
+                }
+                response = self.post("contentgrouping/search", payload=payload)
+                
+                if current_page == 1:
+                    try:
+                        total_pages = response['metadata']['totalPageCount']
+                        logger.info(f"Total pages to retrieve: {total_pages}")
+                    except (KeyError, TypeError):
+                        logger.warning("Could not determine totalPageCount. Assuming one page.")
+                
+                content_groupings = response.get('contentGroupings', [])
+                all_groupings.extend(content_groupings)
+                current_page += 1
+
+            # 2. Generate Theme Groupings
+            if generate_themes:
+                logger.info("Generating theme-based groupings from episode tags...")
+                # Use a dict to group episodes by theme name/ID
+                # Key: topic_id, Value: Theme Grouping Dict
+                themes_map = {}
+
+                for grouping in all_groupings:
+                    # We only look inside the contentList of existing groupings
+                    content_list = grouping.get("contentList", [])
+                    for episode in content_list:
+                        tags = episode.get("tags", [])
+                        for tag in tags:
+                            topic_id = tag.get("topic_id")
+                            theme_name = tag.get("name")
+
+                            if not topic_id:
+                                continue
+
+                            if topic_id not in themes_map:
+                                # Create a new "Theme" grouping structure
+                                themes_map[topic_id] = {
+                                    "type": "Theme",
+                                    "name": theme_name,
+                                    "id": topic_id,  # Using topic_id as the grouping ID
+                                    "topic_id": topic_id,
+                                    "total_runtime": 0,
+                                    "tags": [],
+                                    "rating_count": 0,
+                                    "product_links": [],
+                                    "is_editable": False,
+                                    "is_bookmarked": False,
+                                    "imageURL": None,
+                                    "full_description": f"Episodes related to {theme_name}",
+                                    "enable_ratings": False,
+                                    "enable_commenting": False,
+                                    "disable_comment_posting": False,
+                                    "description": f"Episodes related to {theme_name}",
+                                    "contentList": [], # Episodes will be added here
+                                    "content_for_parents": [],
+                                    "album_number": None,
+                                    "album_copyright_year": None
+                                }
+                            
+                            # Add episode to this theme if it's not already there
+                            # (Prevent duplicates if an episode appears in multiple albums)
+                            existing_ids = {ep['id'] for ep in themes_map[topic_id]["contentList"]}
+                            if episode.get("id") not in existing_ids:
+                                themes_map[topic_id]["contentList"].append(episode)
+
+                # Add the newly generated themes to our main list
+                generated_themes = list(themes_map.values())
+                logger.info(f"Generated {len(generated_themes)} unique theme groupings.")
+                all_groupings.extend(generated_themes)
+
+            logger.info(f"Successfully cached {len(all_groupings)} total groupings.")
+            return all_groupings
     
     def fetch_content_group(self, group_id: str) -> Dict[str, Any]:
         """

@@ -1074,6 +1074,62 @@ class ClubClient(AIOClient):
         # *** MODIFICATION HERE ***
         # Prepend the '?' to the query string before returning.
         return '?' + parsed_url.query
+    
+    def delete_comment(self, comment_id: str) -> Dict[str, Any]:
+        """
+        Deletes an existing comment by its ID.
+        
+        Args:
+            comment_id (str): The unique ID of the comment to be deleted.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response (often a success status).
+            
+        Raises:
+            ValueError: If the required viewer ID (profile ID) is not set.
+        """
+        # Ensure authentication before attempting delete
+        if not hasattr(self, 'viewer_id') or not self.viewer_id:
+            raise ValueError(
+                "Cannot delete comment: viewer_id is not set. "
+                "Ensure the client is authenticated."
+            )
+
+        logger.info(f"Attempting to delete comment with ID: {comment_id}")
+
+        # The ID is appended to the base 'comment' endpoint
+        endpoint = f"comment/{comment_id}"
+        
+        # self.delete handles the full URL construction and authentication
+        return self.delete(endpoint)
+    
+    def delete_playlist(self, playlist_id: str) -> Dict[str, Any]:
+        """
+        Deletes a specific playlist (content grouping) by its ID.
+
+        Args:
+            playlist_id (str): The unique ID of the playlist to be deleted.
+
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the server.
+
+        Raises:
+            ValueError: If the viewer_id is not set, indicating the client is unauthenticated.
+        """
+        # Ensure the client is authenticated
+        if not hasattr(self, 'viewer_id') or not self.viewer_id:
+            raise ValueError(
+                "Cannot delete playlist: viewer_id is not set. "
+                "Ensure the client is authenticated and a profile is selected."
+            )
+
+        logger.info(f"Attempting to delete playlist with ID: {playlist_id}")
+
+        # Construct the endpoint by appending the playlist_id to 'contentgrouping'
+        endpoint = f"contentgrouping/{playlist_id}"
+
+        # Use the client's delete method to perform the request
+        return self.delete(endpoint)
         
     def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -1317,8 +1373,15 @@ class ClubClient(AIOClient):
 
             response.raise_for_status()
             logger.info(f"DELETE request successful for: {full_endpoint}")
+            if response.text.strip():
+                try:
+                    return response.json()
+                except requests.exceptions.JSONDecodeError:
+                    # If it's not JSON but has text, return the text in a dict
+                    return {"status": "success", "message": response.text}
             
-            return response.json()
+            # If body is empty, return a default success message
+            return {"status": "success", "code": response.status_code}
 
         except requests.exceptions.HTTPError as e:
             logger.error(f"DELETE request failed for {full_endpoint}: {e}")
