@@ -52,6 +52,8 @@ This document provides a quick reference for the public methods available in the
 | `bookmark(content_id)` | ❌ | ✅ | Bookmarks (favorites) given ID. |
 | `fetch_profiles()` | ❌ | ✅ | Fetches the profiles for the account |
 | `change_profile(viewer_id, pin)` | ❌ | ✅ | Changes the current profile to the provided one |
+| `delete_comment(comment_id)` | ❌ | ✅ | Deletes comment by given ID. |
+| `delete_playlist(playlist_id)` | ❌ | ✅ | Deletes playlist by given ID. |
 | **Low-Level API Access** | | | |
 | `get(endpoint, params, headers)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles authentication and retry. |
 | `post(endpoint, payload, headers)` | ✅ | ✅ | Performs a general **POST** request. The `ClubClient` version handles authentication and retry. |
@@ -59,6 +61,8 @@ This document provides a quick reference for the public methods available in the
 | `delete(endpoint)` | ❌ | ✅ | Performs a general **DELETE** request |
 | **Custom functions** | | | |
 | `cache_episodes(grouping_type, include_bonus)` | ✅ | ✅ | Caches all episodes by fetching all albums and returns a flattened list. |
+| `cache_albums(grouping_type, include_club_exclusive)` | ✅ | ✅ | Caches all albums and returns a flattened list. |
+| `cache_content_groupings(generate_themes)` | ✅ | ✅ | Caches all content groupings and returns a flattened list. |
 | `fetch_signed_cookie(type)` | ❌ | ✅ | Fetches a signed cookie. Either audio or video |
 | `find_comment_pages()` | ❌ | ✅ | Fetches comments and returns comment pages (most active are top) |
 
