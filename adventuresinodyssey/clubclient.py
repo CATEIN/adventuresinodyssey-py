@@ -123,7 +123,13 @@ class ClubClient(AIOClient):
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page()
-                page.route("**/*.{png,jpg,jpeg}", lambda route: route.abort())
+                def block_heavy_resources(route):
+                    # types to block: 'image', 'stylesheet', 'font', 'media'
+                    if route.request.resource_type in ["image", "font"]:
+                        route.abort()
+                    else:
+                        route.continue_()
+                page.route("**/*", block_heavy_resources)
                 
                 logger.info("Navigating to login page...")
                 page.goto(login_url)
@@ -697,6 +703,31 @@ class ClubClient(AIOClient):
         # POST to: apexrest/v1/comment/search
         return self.post("comment/search", payload=json_data)
     
+    def fetch_comment(self, comment_id: str, related_id: str = None) -> Dict[str, Any]:
+        """
+        Fetches a specific comment by its ID. If a related_id is provided, 
+        the response will typically include replies associated with that comment.
+
+        Args:
+            comment_id (str): The unique ID of the comment to retrieve.
+            related_id (str, optional): The ID of the content item (episode/grouping).
+                                        Including this often triggers the API to return 
+                                        replies for the specified comment.
+
+        Returns:
+            Dict[str, Any]: The parsed JSON response containing the comment details.
+        """
+        logger.info(f"Fetching details for comment ID: {comment_id}")
+
+        payload = {
+            "id": comment_id
+        }
+
+        if related_id:
+            payload["relatedToId"] = related_id
+
+        return self.post("comment/search", payload=payload)
+    
     def find_comment_pages(self) -> List[Dict[str, Any]]:
         """
         Fetches the latest comments, traces replies back to their root content page,
@@ -939,63 +970,129 @@ class ClubClient(AIOClient):
         """
         return self.get("viewer")
     
-    def create_playlist(self, json_payload: dict) -> str:
+    def create_playlist(
+        self, 
+        name: str = "New Playlist", 
+        image_url: str = "", 
+        content_ids: List[str] = None,
+        playlist_json: Dict[str, Any] = None
+    ) -> str:
         """
-        Creates a new content grouping (playlist) by directly posting the 
-        provided JSON payload to the /v1/contentgrouping endpoint.
-
-        This simplified version bypasses argument construction and requires
-        the caller to provide the complete request body.
+        Creates a new content grouping (playlist).
 
         Args:
-            json_payload: A dictionary representing the full request body 
-                        for the API call, e.g., {"contentGroupings": [ ... ]}.
+            name (str): The name of the playlist. Defaults to "New Playlist".
+            image_url (str): The URL for the playlist cover image.
+            content_ids (List[str]): A list of content/episode IDs.
+            playlist_json (Dict[str, Any]): Optional. A complete JSON payload. 
+                                            If provided, other arguments are ignored.
 
         Returns:
-            str: The ID of the newly created playlist (e.g., 'a31Up000007WmVJIA0').
-
-        Raises:
-            RuntimeError: If authentication fails.
-            requests.exceptions.HTTPError: If the API request fails.
-            KeyError: If the API response structure is unexpected.
-            ValueError: If the required payload structure is not present.
+            str: The ID of the newly created playlist.
         """
         
-        # --- Validation and Logging ---
-        try:
-            # Attempt to extract the playlist name for logging purposes
-            playlist_name = json_payload['contentGroupings'][0]['name']
-            num_items = len(json_payload['contentGroupings'][0]['contentList'])
-            log_info = f"Name: {playlist_name}, Items: {num_items}"
-        except (KeyError, IndexError):
-            # If structure is missing, just use a generic log and raise a clear error
-            logger.warning("JSON payload does not conform to expected 'contentGroupings[0]['name']' structure.")
-            log_info = "Malformed Payload (details missing)"
-            
-        if not json_payload.get('contentGroupings'):
-            raise ValueError("JSON payload must contain the 'contentGroupings' key.")
+        # --- Determine Payload ---
+        if playlist_json:
+            logger.info("Creating playlist using provided custom JSON payload.")
+            json_payload = playlist_json
+        else:
+            # Fallback to building the payload from arguments
+            if content_ids is None:
+                content_ids = []
+                
+            content_list_payload = [{"id": cid} for cid in content_ids]
 
-        logger.info(f"Attempting to create new playlist with direct JSON payload: ({log_info})")
+            json_payload = {
+                "contentGroupings": [
+                    {
+                        "name": name,
+                        "imageURL": image_url,
+                        "contentList": content_list_payload
+                    }
+                ]
+            }
+            logger.info(f"Building payload for playlist '{name}' with {len(content_ids)} items.")
 
         # --- API Call ---
-        # The base URL and API prefix are handled by self.post
         # POST to: apexrest/v1/contentgrouping
-        response = self.post("contentgrouping", payload=json_payload)
+        return self.post("contentgrouping", payload=json_payload)
         
-        # --- Response Parsing ---
-        # Expected response structure:
-        # { "metadata": {}, "errors": [], "contentGroupings": [ { "id": "...", ... } ] }
         
+    def update_playlist(
+        self, 
+        playlist: Dict[str, Any], 
+        name: str = None, 
+        image_url: str = None, 
+        add_ids: Union[str, List[str]] = None, 
+        content_ids: List[str] = None, 
+        remove_ids: Union[str, List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Updates an existing playlist by modifying the provided playlist object 
+        and sending a PUT request.
+
+        Args:
+            playlist (dict): The full playlist JSON dictionary.
+            name (str): If provided, updates the playlist name.
+            image_url (str): If provided, updates the imageURL.
+            add_ids (str|list): ID(s) to add to the existing list.
+            content_ids (list): If provided, completely replaces the contentList.
+            remove_ids (str|list): ID(s) to remove from the existing list.
+
+        Returns:
+            Dict[str, Any]: The API response from the PUT request.
+        """
+        # 1. Access the inner grouping data
+        # The API structure usually has 'contentGroupings' as a list
         try:
-            # Extract the ID of the first (and only) grouping in the response list
-            playlist_id = response['contentGroupings'][0]['id']
-            logger.info(f"Playlist successfully created with ID: {playlist_id}")
-            return playlist_id
-            
-        except (KeyError, IndexError) as e:
-            logger.error(f"Failed to parse playlist ID from API response: {e}")
-            logger.debug(f"Raw Response: {response}")
-            raise KeyError("API response was missing the expected 'contentGroupings[0]['id']' field.")
+            grouping = playlist['contentGroupings'][0]
+            playlist_id = grouping['id']
+        except (KeyError, IndexError):
+            raise ValueError("Invalid playlist JSON: Could not find 'contentGroupings[0].id'")
+
+        logger.info(f"Preparing update for playlist ID: {playlist_id}")
+
+        # 2. Update Name and Image if provided
+        if name:
+            grouping['name'] = name
+        if image_url is not None:
+            grouping['imageURL'] = image_url
+
+        # 3. Manage contentList
+        # Helper to convert ID strings to {"id": "..."} format
+        def format_id(cid): return {"id": cid}
+
+        if content_ids is not None:
+            # Complete override
+            grouping['contentList'] = [format_id(cid) for cid in content_ids]
+        else:
+            # Incremental updates (Add/Remove)
+            current_list = grouping.get('contentList', [])
+            current_ids = [item['id'] for item in current_list]
+
+            # Handle Removal
+            if remove_ids:
+                if isinstance(remove_ids, str):
+                    remove_ids = [remove_ids]
+                current_ids = [cid for cid in current_ids if cid not in remove_ids]
+
+            # Handle Addition
+            if add_ids:
+                if isinstance(add_ids, str):
+                    add_ids = [add_ids]
+                for aid in add_ids:
+                    if aid not in current_ids:  # Avoid duplicates
+                        current_ids.append(aid)
+
+            # Rebuild the dictionary list
+            grouping['contentList'] = [format_id(cid) for cid in current_ids]
+
+        # 4. Perform the PUT request
+        # Endpoint: contentgrouping/{id}
+        endpoint = f"contentgrouping/{playlist_id}"
+        
+        logger.info(f"Sending PUT request to {endpoint}")
+        return self.put(endpoint, payload=playlist)
         
     def fetch_playlists(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
         """
@@ -1316,6 +1413,67 @@ class ClubClient(AIOClient):
 
         except requests.exceptions.HTTPError as e:
             logger.error(f"PUT request failed for {full_endpoint}: {e}")
+            raise
+    
+    def patch(self, endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Performs an authenticated PATCH request to a generalized API endpoint with JSON data.
+        
+        Args:
+            endpoint: The relative API path (e.g., 'contentgrouping/search').
+            payload: The JSON dictionary to be sent in the request body.
+            headers: Optional dictionary of headers to override or add for this request.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response from the API.
+            
+        Raises:
+            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+        """
+        request_timeout = timeout if timeout is not None else self.timeout
+
+        if not self.ensure_authenticated():
+            raise RuntimeError(f"Cannot perform POST request to {endpoint}: Failed to authenticate user.")
+            
+        # Construct the full URL by prepending the base and the API prefix
+        full_endpoint = f"{API_PREFIX}{endpoint}"
+        url = f"{self.config['api_base']}{full_endpoint}"
+        
+        # --- HEADER OVERRIDE LOGIC ---
+        request_headers = self.session.headers.copy()
+        if headers:
+            request_headers.update(headers)
+        # -----------------------------
+
+        def make_request():
+            # Pass the custom headers to the request call
+            # Use json=payload to automatically set Content-Type: application/json
+            response = self.session.patch(url, json=payload, headers=request_headers, timeout=request_timeout)
+            return response
+
+        try:
+            logger.info(f"Attempting PATCH request to: {full_endpoint}")
+            response = make_request()
+
+            # Handle 401 Unauthorized
+            if response.status_code == 401:
+                logger.warning("PATCH request failed with 401 Unauthorized. Attempting re-authentication...")
+                if self.ensure_authenticated():
+                    logger.info("Re-authentication successful. Retrying request...")
+                    # Update request headers after re-authentication
+                    request_headers = self.session.headers.copy()
+                    if headers:
+                        request_headers.update(headers)
+                    response = make_request()
+                else:
+                    response.raise_for_status() 
+
+            response.raise_for_status()
+            logger.info(f"PATCH request successful for: {full_endpoint}")
+            return response.json()
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"PATCH request failed for {full_endpoint}: {e}")
             raise
         
     def delete(self, endpoint: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:

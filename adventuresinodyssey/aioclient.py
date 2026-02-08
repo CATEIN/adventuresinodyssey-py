@@ -107,6 +107,30 @@ class AIOClient:
         except requests.exceptions.HTTPError as e:
             logger.error(f"Failed to fetch content ID {content_id} (Page Type: {page_type}): {e}")
             raise
+    
+    def fetch_new_content(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
+        """
+        Fetches the latest published content for the community.
+        
+        Args:
+            page_number (int): The page to retrieve (mapped to 'pagenum'). Defaults to 1.
+            page_size (int): Number of items per page (mapped to 'pagecount'). Defaults to 25.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response containing the newest content.
+        """
+        logger.info(f"Fetching new content: Page {page_number}, Size {page_size}")
+
+        # Define the query parameters based on the URL structure provided
+        params = {
+            "community": "Adventures In Odyssey",
+            "orderby": "Last_Published_Date__c DESC NULLS LAST",
+            "pagenum": page_number,
+            "pagecount": page_size
+        }
+
+        # GET to: apexrest/v1/content/search
+        return self.get("content/search", params=params)
         
     def fetch_radio(self, page_type: str = 'aired', page_number: int = 1, page_size: int = 5) -> Dict[str, Any]:
         """
@@ -826,3 +850,4 @@ class AIOClient:
         except requests.exceptions.HTTPError as e:
             logger.error(f"POST request failed: {e}")
             raise
+    
