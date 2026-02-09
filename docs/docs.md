@@ -44,7 +44,7 @@ This document provides a quick reference for the public methods available in the
 | **Upload content** | | | |
 | `create_playlist(name, image_url, content_ids, json_payload)` | ❌ | ✅ | Creates a playlist with the provided data.|
 | `update_playlist(playlist, name, image_url, content_ids, add_ids, remove_ids)` | ❌ | ✅ | Updates a playlist with the provided data.|
-| `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
+| `send_progress(content_id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Comments/Commenting** | | | |
 | `post_comment(message, related_id)` | ❌ | ✅ | Posts a comment to a given page ID. |
 | `post_reply(message, related_id)` | ❌ | ✅ | Posts a reply to a given comment ID. |
