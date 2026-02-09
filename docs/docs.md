@@ -42,17 +42,20 @@ This document provides a quick reference for the public methods available in the
 | `search_all(query)` | ✅ | ✅ | searches for everything |
 | `search(query, search_objects)` | ✅ | ✅ | searches |
 | **Upload content** | | | |
+| `create_playlist(name, image_url, content_ids, json_payload)` | ❌ | ✅ | Creates a playlist with the provided data.|
+| `update_playlist(playlist, name, image_url, content_ids, add_ids, remove_ids)` | ❌ | ✅ | Updates a playlist with the provided data.|
+| `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
+| **Comments/Commenting** | | | |
 | `post_comment(message, related_id)` | ❌ | ✅ | Posts a comment to a given page ID. |
 | `post_reply(message, related_id)` | ❌ | ✅ | Posts a reply to a given comment ID. |
-| `create_playlist(json_payload)` | ❌ | ✅ | Creates a playlist with the provided data. Returns playlist id. |
-| `send_progress(id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
+| `fetch_comment(comment_id, related_id)` | ❌ | ✅ | Fetches comment from given ID. Including the related_id includes replies. |
+| `fetch_comments(related_id, page_number, page_size)` | ❌ | ✅ | Fetches comments from given ID. |
+| `delete_comment(comment_id)` | ❌ | ✅ | Deletes comment by given ID. |
 | **Other** | | | |
 | `fetch_carousel()`|  ✅ | ✅ | Retrieves the carousel from home page |
-| `fetch_comments(related_id, page_number, page_size)` | ❌ | ✅ | Fetches comments from given ID. |
 | `bookmark(content_id)` | ❌ | ✅ | Bookmarks (favorites) given ID. |
 | `fetch_profiles()` | ❌ | ✅ | Fetches the profiles for the account |
 | `change_profile(viewer_id, pin)` | ❌ | ✅ | Changes the current profile to the provided one |
-| `delete_comment(comment_id)` | ❌ | ✅ | Deletes comment by given ID. |
 | `delete_playlist(playlist_id)` | ❌ | ✅ | Deletes playlist by given ID. |
 | **Low-Level API Access** | | | |
 | `get(endpoint, params, headers)` | ✅ | ✅ | Performs a general **GET** request to an API endpoint. The `ClubClient` version handles authentication and retry. |
