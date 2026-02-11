@@ -42,7 +42,7 @@ This document provides a quick reference for the public methods available in the
 | `search_all(query)` | ✅ | ✅ | searches for everything |
 | `search(query, search_objects)` | ✅ | ✅ | searches |
 | **Upload content** | | | |
-| `create_playlist(name, image_url, content_ids, json_payload)` | ❌ | ✅ | Creates a playlist with the provided data.|
+| `create_playlist(name, image_url, content_ids, playlist_json)` | ❌ | ✅ | Creates a playlist with the provided data.|
 | `update_playlist(playlist, name, image_url, content_ids, add_ids, remove_ids)` | ❌ | ✅ | Updates a playlist with the provided data.|
 | `send_progress(content_id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Comments/Commenting** | | | |
