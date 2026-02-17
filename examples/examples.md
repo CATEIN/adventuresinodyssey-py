@@ -41,15 +41,16 @@ These programs require `python-dotenv` and .env file like:
 ```bash
 AIO_EMAIL=email_here
 AIO_PASSWORD=password_here
+AIO_VIEWER_ID=profile_id_here
 AIO_PROFILE_USERNAME=username_here
 AIO_PIN=pin_here_or_0000
-# optional but good
-AIO_VIEWER_ID=profile_id_here
+# not as good
+AIO_PROFILE_USERNAME=username_here
 ```
 
 ## [player.py](/examples/player.py)
 
-A simple player in the terminal with a queue system. It caches all the episodes and uses a signed cookie to load audio. Reqiures `mpv` and `textual`
+A simple player in the terminal with a queue system. It caches episode metadata for faster audio loading. Reqiures `mpv` and `textual`
 
 
 ```bash
@@ -60,3 +61,6 @@ pip install mpv
 pip install textual
 ```
 *windows users have to add mpv to PATH.
+
+## [comment_with_replies.py](/examples/comment_with_replies.py)
+Post comments past the 255 character limit by replying to your original comment. (Note that Club moderators may not approve all posted replies)
