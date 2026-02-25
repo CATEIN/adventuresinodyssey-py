@@ -42,7 +42,6 @@ These programs require `python-dotenv` and .env file like:
 AIO_EMAIL=email_here
 AIO_PASSWORD=password_here
 AIO_VIEWER_ID=profile_id_here
-AIO_PROFILE_USERNAME=username_here
 AIO_PIN=pin_here_or_0000
 # not as good
 AIO_PROFILE_USERNAME=username_here
