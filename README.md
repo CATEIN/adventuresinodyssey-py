@@ -16,3 +16,6 @@ This is currently in very early development, some stuff might not work or break.
 [Docs](/docs/docs.md)
 
 [Examples](examples/examples.md)
+
+# Acknowledgements
+Thanks to [Droopcat](https://github.com/DroopCat) for figuring out the Clubs authentication flow
