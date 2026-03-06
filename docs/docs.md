@@ -23,7 +23,7 @@ This document provides a quick reference for the public methods available in the
 | `fetch_random()` | ❌ | ✅ | Fetches a random episode. |
 | **Content group** | | | |
 | `fetch_theme(theme_id)` | ✅ | ✅ | Retrieves the detailed data for a specific theme group item by its ID. |
-| `fetch_content_group(id)` | ✅ | ✅ | Retrieves the detailed data for a specific content group item by its ID.|
+| `fetch_content_group(group_id)` | ✅ | ✅ | Retrieves the detailed data for a specific content group item by its ID.|
 | `fetch_badge(badge_id)`| ❌ | ✅ | Retrieves the detailed data for a specific badge by its ID. |
 | **Content groupings** | | | |
 | `fetch_home_playlists()`|  ✅ | ✅ | Retrieves a contentgroups on the home page |
