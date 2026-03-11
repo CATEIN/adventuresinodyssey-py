@@ -6,7 +6,7 @@ Used for accessing publicly available content (e.g., promo content, radio schedu
 import re
 import logging
 from typing import Optional, Dict, Any, List, Union
-import requests
+import httpx
 
 # Configure logging
 logging.basicConfig(
@@ -28,62 +28,101 @@ DEFAULT_FIELDS = {
 }
 
 
-class AIOClient:
+class AsyncAIOClient:
     """
-    Unauthenticated client for Adventures in Odyssey API.
+    Unauthenticated async client for Adventures in Odyssey API.
     Does not handle login, profile selection, or token management.
+
+    Usage:
+        async with AsyncAIOClient() as client:
+            data = await client.fetch_content("a354W0000046U6OQAU")
+
+    Or manage the lifecycle manually:
+        client = AsyncAIOClient()
+        await client.open()
+        ...
+        await client.close()
     """
-    
+
     def __init__(self, timeout: int = 10):
         """
         Initialize the AIO API client configuration for unauthenticated access.
         """
-        
         self.state = "ready"
         self.timeout = timeout
-        
+
         # Client configuration (minimal set)
         self.config = {
-            'api_base': 'https://fotf.my.site.com/aio/services/', 
+            'api_base': 'https://fotf.my.site.com/aio/services/',
             'api_version': 'v1',
         }
-        
-        # Setup HTTP session with unauthenticated header
-        self.session = requests.Session()
-        # The API requires the 'x-experience-name' header even for unauthenticated calls
-        self.session.headers.update({
-            'x-experience-name': 'Adventures In Odyssey',
-            # NO x-viewer-id, x-pin, or Authorization header should be set
-        })
 
-    def fetch_content(self, content_id: str, page_type: str = 'promo') -> Dict[str, Any]:
+        # The async httpx client is created lazily (or via open/context manager)
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _make_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            headers={
+                'x-experience-name': 'Adventures In Odyssey',
+                # NO x-viewer-id, x-pin, or Authorization header should be set
+            },
+            timeout=self.timeout,
+        )
+
+    async def open(self) -> None:
+        """Explicitly open the underlying HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = self._make_client()
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client and release connections."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+
+    async def __aenter__(self) -> "AsyncAIOClient":
+        await self.open()
+        return self
+
+    async def __aexit__(self, *_) -> None:
+        await self.close()
+
+    @property
+    def session(self) -> httpx.AsyncClient:
+        """Return the active client, creating one on demand if needed."""
+        if self._client is None or self._client.is_closed:
+            self._client = self._make_client()
+        return self._client
+
+    # ------------------------------------------------------------------
+    # Public API methods
+    # ------------------------------------------------------------------
+
+    async def fetch_content(self, content_id: str, page_type: str = 'promo') -> Dict[str, Any]:
         """
         Fetches detailed content data for a given ID.
-        
+
         Supports 'promo' (default) and 'radio' page types, which do not require authentication.
         'full' page type is not supported as it requires login.
-        
+
         Args:
             content_id: The ID of the content to fetch (e.g., 'a354W0000046U6OQAU').
             page_type: The type of content page: 'promo' (default) or 'radio'.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
             ValueError: If the unsupported 'full' page_type is provided.
-            requests.exceptions.HTTPError: If the API request fails.
+            httpx.HTTPStatusError: If the API request fails.
         """
         if page_type == 'full':
-            raise ValueError("The 'full' page_type requires authentication and is not supported by AIOClient.")
-        
+            raise ValueError("The 'full' page_type requires authentication and is not supported by AsyncAIOClient.")
+
         is_radio = (page_type == 'radio')
-        
-        # Base API URL structure for content details
+
         endpoint = f"apexrest/{self.config['api_version']}/content/{content_id}"
         url = f"{self.config['api_base']}{endpoint}"
 
-        # Standard default parameters for 'promo'
         params = {
             'tag': 'true',
             'series': 'true',
@@ -93,35 +132,33 @@ class AIOClient:
         }
 
         if is_radio:
-            # Add radio-specific parameter
             params['radio_page_type'] = 'aired'
             logger.info("Fetching content for 'radio' page type, adding radio_page_type=aired.")
 
         logger.info(f"Attempting to fetch content ID: {content_id} (Page Type: {page_type})")
-        
+
         try:
-            response = self.session.get(url, params=params)
+            response = await self.session.get(url, params=params)
             response.raise_for_status()
             logger.info(f"Content fetch successful for ID: {content_id} (Page Type: {page_type})")
             return response.json()
-        except requests.exceptions.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             logger.error(f"Failed to fetch content ID {content_id} (Page Type: {page_type}): {e}")
             raise
-    
-    def fetch_new_content(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
+
+    async def fetch_new_content(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
         """
         Fetches the latest published content for the community.
-        
+
         Args:
             page_number (int): The page to retrieve (mapped to 'pagenum'). Defaults to 1.
             page_size (int): Number of items per page (mapped to 'pagecount'). Defaults to 25.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response containing the newest content.
         """
         logger.info(f"Fetching new content: Page {page_number}, Size {page_size}")
 
-        # Define the query parameters based on the URL structure provided
         params = {
             "community": "Adventures In Odyssey",
             "orderby": "Last_Published_Date__c DESC NULLS LAST",
@@ -129,27 +166,24 @@ class AIOClient:
             "pagecount": page_size
         }
 
-        # GET to: apexrest/v1/content/search
-        return self.get("content/search", params=params)
-        
-    def fetch_radio(self, page_type: str = 'aired', page_number: int = 1, page_size: int = 5) -> Dict[str, Any]:
+        return await self.get("content/search", params=params)
+
+    async def fetch_radio(self, page_type: str = 'aired', page_number: int = 1, page_size: int = 5) -> Dict[str, Any]:
         """
         Fetches the schedule of aired or upcoming radio episodes.
-        
+
         Args:
-            content_type: The radio schedule type: 'aired' (default) or 'upcoming'.
+            page_type: The radio schedule type: 'aired' (default) or 'upcoming'.
             page_number: The 1-based index of the page to retrieve. Defaults to 1.
             page_size: The number of results per page. Defaults to 5.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
-            ValueError: If an invalid content_type is provided.
-            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+            ValueError: If an invalid page_type is provided.
+            httpx.HTTPStatusError: If the API request fails.
         """
-        
-        # Base query parameters common to both aired and upcoming searches
         params = {
             'content_type': 'Audio',
             'content_subtype': 'Episode',
@@ -157,8 +191,7 @@ class AIOClient:
             'pagenum': page_number,
             'pagecount': page_size,
         }
-        
-        # Set type-specific parameters
+
         if page_type == 'aired':
             params['orderby'] = 'Recent_Air_Date__c DESC'
             params['radio_page_type'] = 'aired'
@@ -169,114 +202,99 @@ class AIOClient:
             log_info = "Upcoming Radio Episodes"
         else:
             raise ValueError(f"Invalid content_type '{page_type}'. Must be 'aired' or 'upcoming'.")
-            
+
         logger.info(f"Attempting to fetch {log_info} (Page {page_number}, Size {page_size})")
 
-        # The endpoint is 'content/search', and the generalized get method handles the base URL.
-        return self.get("content/search", params=params)
-    
-    def cache_episodes(self, grouping_type: str = "Album", include_bonus: bool = False) -> List[Dict[str, Any]]:
+        return await self.get("content/search", params=params)
+
+    async def cache_episodes(self, grouping_type: str = "Album", include_bonus: bool = False) -> List[Dict[str, Any]]:
         """
-        Retrieves all available audio episodes from the specified content grouping type 
+        Retrieves all available audio episodes from the specified content grouping type
         (e.g., "Album", "Episode Home"), cleans the data, and returns a flattened list.
 
         This function automatically handles pagination across all pages for the grouping type.
 
         Args:
-            grouping_type (str): The type of content grouping to fetch episodes from 
+            grouping_type (str): The type of content grouping to fetch episodes from
                                 (e.g., "Album", "Episode Home"). Defaults to "Album".
-        include_bonus (bool): If True, episodes starting with "BONUS" will be included.
-                               Defaults to False.
+            include_bonus (bool): If True, episodes starting with "BONUS" will be included.
+                                   Defaults to False.
 
         Returns:
             List[Dict[str, Any]]: A flat list of cleaned episode dictionaries.
         """
-
         logger.info(f"Starting process to cache all episodes (fetching all '{grouping_type}' pages).")
-        
+
         all_episodes = []
         current_page = 1
-        total_pages = 1  # Will be updated after the first API call
+        total_pages = 1
 
-        # Loop until the current page exceeds the total number of pages
         while current_page <= total_pages:
             logger.debug(f"Fetching '{grouping_type}' page {current_page} of {total_pages}...")
-            
-            # Fetch content groupings (e.g., Albums or Episode Home)
-            # Use a large page size (100) to minimize the number of API calls
-            response = self.fetch_content_groupings(
+
+            response = await self.fetch_content_groupings(
                 grouping_type=grouping_type,
-                page_number=current_page, 
+                page_number=current_page,
                 page_size=100
             )
-            
-            # Update total pages on the first request
+
             if current_page == 1:
                 try:
                     total_pages = response['metadata']['totalPageCount']
                     logger.info(f"Total '{grouping_type}' pages to retrieve: {total_pages}")
                 except (KeyError, TypeError):
                     logger.warning("Could not determine totalPageCount from metadata. Assuming only one page.")
-            
-            # Process the content groupings on the current page
+
             content_groupings = response.get('contentGroupings', [])
-            
-            for content_grouping in content_groupings: # <<< RENAMED FROM 'album' for generality
-                # Use a generic name for the grouping ID and Name
+
+            for content_grouping in content_groupings:
                 grouping_id = content_grouping.get('id')
                 grouping_name = content_grouping.get('name', f'UNKNOWN {grouping_type.upper()}')
-                
+
                 if not grouping_id:
                     logger.warning(f"Skipping {grouping_type} '{grouping_name}' due to missing ID.")
                     continue
 
                 episode_list = content_grouping.get('contentList', [])
-                
+
                 for episode in episode_list:
                     episode_name = episode.get('name', 'Untitled Episode')
 
                     if episode.get('type') != 'Audio':
                         logger.debug(f"Skipping non-audio episode: {episode_name}")
                         continue
-                    
-                    # 1. Filter out episodes starting with "BONUS"
+
                     if not include_bonus and episode_name.startswith("BONUS"):
                         logger.debug(f"Skipping bonus episode: {episode_name}")
                         continue
-
-                    # 2. Add the grouping ID to the episode dictionary
-                    # Note: Keeping the key as 'album_id' for consistency with previous usage
-                    clean_episode = episode.copy() 
-                    clean_episode['album_id'] = grouping_id # Still using 'album_id' key
-                    
+                        
+                    clean_episode = episode.copy()
+                    clean_episode['album_id'] = grouping_id
                     all_episodes.append(clean_episode)
-                    
+
             current_page += 1
 
         logger.info(f"Successfully cached {len(all_episodes)} clean episodes across {total_pages} pages.")
         return all_episodes
-    
-    def cache_albums(self, grouping_type: str = "Album", include_club_exclusive: bool = True) -> List[Dict[str, Any]]:
+
+    async def cache_albums(self, grouping_type: str = "Album", include_club_exclusive: bool = True) -> List[Dict[str, Any]]:
         """
-        Retrieves all available content groupings from the specified type 
+        Retrieves all available content groupings from the specified type
         (e.g., "Album", "Episode Home") and returns them as a flattened list.
 
         Args:
             grouping_type (str): The type of content grouping to fetch. Defaults to "Album".
-            If grouping_type is "Themes", it fetches albums and generates unique theme 
-            groupings based on episode tags.
-            include_club_exclusive (bool): If False, filters out "Club Season", 
-                                        "The Officer Harley Collection", and albums 
+            include_club_exclusive (bool): If False, filters out "Club Season",
+                                        "The Officer Harley Collection", and albums
                                         numbered #81 or higher. Defaults to True.
 
         Returns:
             List[Dict[str, Any]]: A flat list of content grouping dictionaries.
         """
-        # If the user specifically wants Themes, we must fetch Albums first to extract tags
         fetch_type = "Album" if grouping_type == "Themes" else grouping_type
-        
+
         logger.info(f"Starting process to cache {grouping_type} (fetching {fetch_type} source).")
-        
+
         all_groupings = []
         current_page = 1
         total_pages = 1
@@ -284,41 +302,39 @@ class AIOClient:
 
         while current_page <= total_pages:
             logger.debug(f"Fetching '{fetch_type}' page {current_page} of {total_pages}...")
-            
-            response = self.fetch_content_groupings(
+
+            response = await self.fetch_content_groupings(
                 grouping_type=fetch_type,
-                page_number=current_page, 
+                page_number=current_page,
                 page_size=100
             )
-            
+
             if current_page == 1:
                 try:
                     total_pages = response['metadata']['totalPageCount']
                 except (KeyError, TypeError):
                     total_pages = 1
-            
+
             content_groupings = response.get('contentGroupings', [])
 
-            # --- Filtering Logic ---
             if not include_club_exclusive:
                 filtered_batch = []
                 for item in content_groupings:
                     name = item.get("name", "")
                     is_excluded = "Club Season" in name or "The Officer Harley Collection" in name
-                    
+
                     match = club_num_pattern.search(name)
                     if match and int(match.group(1)) >= 81:
                         is_excluded = True
-                    
+
                     if not is_excluded:
                         filtered_batch.append(item)
                 all_groupings.extend(filtered_batch)
             else:
                 all_groupings.extend(content_groupings)
-            
+
             current_page += 1
 
-        # --- Theme Generation Logic ---
         if grouping_type == "Themes":
             logger.info("Generating theme-based groupings from album episode tags...")
             themes_map = {}
@@ -338,157 +354,148 @@ class AIOClient:
                                 "topic_id": topic_id,
                                 "contentList": [],
                                 "description": f"Episodes related to {tag.get('name')}",
-                                # Initialize other standard fields as empty/None
                                 "total_runtime": 0, "tags": [], "rating_count": 0,
                                 "is_editable": False, "is_bookmarked": False,
                                 "imageURL": None, "product_links": []
                             }
-                        
-                        # Deduplicate episodes within the theme
+
                         if episode.get("id") not in {ep['id'] for ep in themes_map[topic_id]["contentList"]}:
                             themes_map[topic_id]["contentList"].append(episode)
 
-            # Return ONLY the themes
             final_list = list(themes_map.values())
             logger.info(f"Successfully generated {len(final_list)} theme groupings.")
             return final_list
 
-        # Return standard groupings (Albums, etc.)
         logger.info(f"Successfully cached {len(all_groupings)} {grouping_type}s.")
         return all_groupings
 
-    def cache_content_groupings(self, generate_themes: bool = False) -> List[Dict[str, Any]]:
-            """
-            Retrieves all available content groupings and optionally generates 
-            "Theme" groupings based on episode tags.
+    async def cache_content_groupings(self, generate_themes: bool = False) -> List[Dict[str, Any]]:
+        """
+        Retrieves all available content groupings and optionally generates
+        "Theme" groupings based on episode tags.
 
-            Args:
-                generate_themes (bool): If True, parses all episodes within groupings to 
-                                    create new groupings categorized by theme tags.
-            """
-            logger.info("Starting process to cache all content groupings.")
-            
-            all_groupings = []
-            current_page = 1
-            total_pages = 1
+        Args:
+            generate_themes (bool): If True, parses all episodes within groupings to
+                                create new groupings categorized by theme tags.
+        """
+        logger.info("Starting process to cache all content groupings.")
 
-            # 1. Standard Pagination Loop
-            while current_page <= total_pages:
-                logger.debug(f"Fetching content groupings page {current_page} of {total_pages}...")
-                
-                payload = {
-                    "community": "Adventures in Odyssey",
-                    "pageNumber": current_page,
-                    "pageSize": 300
-                }
-                response = self.post("contentgrouping/search", payload=payload)
-                
-                if current_page == 1:
-                    try:
-                        total_pages = response['metadata']['totalPageCount']
-                        logger.info(f"Total pages to retrieve: {total_pages}")
-                    except (KeyError, TypeError):
-                        logger.warning("Could not determine totalPageCount. Assuming one page.")
-                
-                content_groupings = response.get('contentGroupings', [])
-                all_groupings.extend(content_groupings)
-                current_page += 1
+        all_groupings = []
+        current_page = 1
+        total_pages = 1
 
-            # 2. Generate Theme Groupings
-            if generate_themes:
-                logger.info("Generating theme-based groupings from episode tags...")
-                # Use a dict to group episodes by theme name/ID
-                # Key: topic_id, Value: Theme Grouping Dict
-                themes_map = {}
+        while current_page <= total_pages:
+            logger.debug(f"Fetching content groupings page {current_page} of {total_pages}...")
 
-                for grouping in all_groupings:
-                    # We only look inside the contentList of existing groupings
-                    content_list = grouping.get("contentList", [])
-                    for episode in content_list:
-                        tags = episode.get("tags", [])
-                        for tag in tags:
-                            topic_id = tag.get("topic_id")
-                            theme_name = tag.get("name")
+            payload = {
+                "community": "Adventures in Odyssey",
+                "pageNumber": current_page,
+                "pageSize": 300
+            }
+            response = await self.post("contentgrouping/search", payload=payload)
 
-                            if not topic_id:
-                                continue
+            if current_page == 1:
+                try:
+                    total_pages = response['metadata']['totalPageCount']
+                    logger.info(f"Total pages to retrieve: {total_pages}")
+                except (KeyError, TypeError):
+                    logger.warning("Could not determine totalPageCount. Assuming one page.")
 
-                            if topic_id not in themes_map:
-                                # Create a new "Theme" grouping structure
-                                themes_map[topic_id] = {
-                                    "type": "Theme",
-                                    "name": theme_name,
-                                    "id": topic_id,  # Using topic_id as the grouping ID
-                                    "topic_id": topic_id,
-                                    "total_runtime": 0,
-                                    "tags": [],
-                                    "rating_count": 0,
-                                    "product_links": [],
-                                    "is_editable": False,
-                                    "is_bookmarked": False,
-                                    "imageURL": None,
-                                    "full_description": f"Episodes related to {theme_name}",
-                                    "enable_ratings": False,
-                                    "enable_commenting": False,
-                                    "disable_comment_posting": False,
-                                    "description": f"Episodes related to {theme_name}",
-                                    "contentList": [], # Episodes will be added here
-                                    "content_for_parents": [],
-                                    "album_number": None,
-                                    "album_copyright_year": None
-                                }
-                            
-                            # Add episode to this theme if it's not already there
-                            # (Prevent duplicates if an episode appears in multiple albums)
-                            existing_ids = {ep['id'] for ep in themes_map[topic_id]["contentList"]}
-                            if episode.get("id") not in existing_ids:
-                                themes_map[topic_id]["contentList"].append(episode)
+            content_groupings = response.get('contentGroupings', [])
+            all_groupings.extend(content_groupings)
+            current_page += 1
 
-                # Add the newly generated themes to our main list
-                generated_themes = list(themes_map.values())
-                logger.info(f"Generated {len(generated_themes)} unique theme groupings.")
-                all_groupings.extend(generated_themes)
+        if generate_themes:
+            logger.info("Generating theme-based groupings from episode tags...")
+            themes_map = {}
 
-            logger.info(f"Successfully cached {len(all_groupings)} total groupings.")
-            return all_groupings
-    
-    def fetch_content_group(self, group_id: str) -> Dict[str, Any]:
+            for grouping in all_groupings:
+                content_list = grouping.get("contentList", [])
+                for episode in content_list:
+                    tags = episode.get("tags", [])
+                    for tag in tags:
+                        topic_id = tag.get("topic_id")
+                        theme_name = tag.get("name")
+
+                        if not topic_id:
+                            continue
+
+                        if topic_id not in themes_map:
+                            themes_map[topic_id] = {
+                                "type": "Theme",
+                                "name": theme_name,
+                                "id": topic_id,
+                                "topic_id": topic_id,
+                                "total_runtime": 0,
+                                "tags": [],
+                                "rating_count": 0,
+                                "product_links": [],
+                                "is_editable": False,
+                                "is_bookmarked": False,
+                                "imageURL": None,
+                                "full_description": f"Episodes related to {theme_name}",
+                                "enable_ratings": False,
+                                "enable_commenting": False,
+                                "disable_comment_posting": False,
+                                "description": f"Episodes related to {theme_name}",
+                                "contentList": [],
+                                "content_for_parents": [],
+                                "album_number": None,
+                                "album_copyright_year": None
+                            }
+
+                        existing_ids = {ep['id'] for ep in themes_map[topic_id]["contentList"]}
+                        if episode.get("id") not in existing_ids:
+                            themes_map[topic_id]["contentList"].append(episode)
+
+            generated_themes = list(themes_map.values())
+            logger.info(f"Generated {len(generated_themes)} unique theme groupings.")
+            all_groupings.extend(generated_themes)
+
+        logger.info(f"Successfully cached {len(all_groupings)} total groupings.")
+        return all_groupings
+
+    async def fetch_content_group(self, group_id: str) -> Dict[str, Any]:
         """
         Fetches detailed data for a content grouping (e.g., an album or series).
-        
+
         Args:
             group_id: The ID of the content grouping to fetch (e.g., 'a31Uh0000035T2rIAE').
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
-        Raises:
-            requests.exceptions.HTTPError: If the API request fails.
-        """
-        # Uses the unauthenticated get helper
-        return self.get(f"contentgrouping/{group_id}")
 
-    def fetch_content_groupings(self, page_number: int = 1, page_size: int = 25, grouping_type: str = 'Album', payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        return await self.get(f"contentgrouping/{group_id}")
+
+    async def fetch_content_groupings(
+        self,
+        page_number: int = 1,
+        page_size: int = 25,
+        grouping_type: str = 'Album',
+        payload: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Searches for and fetches a paginated list of content groupings (e.g., albums/series).
-        
-        If 'payload' is provided, it is used directly as the POST body, overriding 
+
+        If 'payload' is provided, it is used directly as the POST body, overriding
         'page_number', 'page_size', and 'grouping_type'.
-        
+
         Args:
             page_number: The 1-based index of the page to retrieve. Defaults to 1.
             page_size: The number of results per page. Defaults to 25.
-            grouping_type: The type of content grouping to search for: 'Album' (default), 'Series', 'Collection', 'Episode Home', etc.
-            payload: Optional. A complete request body (dictionary) to send instead of the default structured payload.
-            
+            grouping_type: The type of content grouping to search for.
+            payload: Optional. A complete request body (dictionary) to send instead of
+                     the default structured payload.
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
-            requests.exceptions.HTTPError: If the API request fails.
+            httpx.HTTPStatusError: If the API request fails.
         """
-        
-        # Construct the payload based on arguments
         if payload is not None:
             request_payload = payload
             log_info = "custom payload"
@@ -502,66 +509,65 @@ class AIOClient:
             log_info = f"Type: {grouping_type}, Page {page_number}, Size {page_size}"
 
         logger.info(f"Attempting to fetch content groupings ({log_info})")
-        
-        # Uses the unauthenticated post helper
-        return self.post("contentgrouping/search", request_payload)
-            
-    def fetch_characters(self, page_number: int = 1, page_size: int = 200) -> Dict[str, Any]:
+
+        return await self.post("contentgrouping/search", request_payload)
+
+    async def fetch_characters(self, page_number: int = 1, page_size: int = 200) -> Dict[str, Any]:
         """
         Fetches a paginated list of characters (e.g., 'Whit', 'Connie', 'Eugene').
-        
+
         Args:
             page_number: The 1-based index of the page to retrieve. Defaults to 1.
             page_size: The number of results per page. Defaults to 200.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
-            requests.exceptions.HTTPError: If the API request fails.
+            httpx.HTTPStatusError: If the API request fails.
         """
         request_payload = {
             "pageNumber": page_number,
             "pageSize": page_size
         }
-        
+
         log_info = f"Page {page_number}, Size {page_size}"
         logger.info(f"Attempting to fetch characters ({log_info})")
-        
-        return self.post("character/search", request_payload)
 
-    def fetch_cast_and_crew(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
+        return await self.post("character/search", request_payload)
+
+    async def fetch_cast_and_crew(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
         """
         Fetches a paginated list of cast and crew (authors).
-        
+
         Args:
             page_number: The 1-based index of the page to retrieve. Defaults to 1.
             page_size: The number of results per page. Defaults to 25.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
-            requests.exceptions.HTTPError: If the API request fails.
+            httpx.HTTPStatusError: If the API request fails.
         """
         request_payload = {
             "pageNumber": page_number,
             "pageSize": page_size
         }
-        
+
         log_info = f"Page {page_number}, Size {page_size}"
         logger.info(f"Attempting to fetch cast and crew ({log_info})")
-        
-        return self.post("author/search", request_payload)
-    
-    def fetch_themes(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
+
+        return await self.post("author/search", request_payload)
+
+    async def fetch_themes(self, page_number: int = 1, page_size: int = 25) -> Dict[str, Any]:
         """
         Fetches a paginated list of themes (Topics) via a POST request.
-        
+
         Args:
             page_number: The page number to retrieve. Defaults to 1.
             page_size: The number of results per page. Defaults to 25.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response containing the list of themes.
         """
@@ -569,128 +575,119 @@ class AIOClient:
             "pageNumber": page_number,
             "pageSize": page_size
         }
-        
-        # POST to: apexrest/v1/topic/search
-        return self.post("topic/search", payload=themes_json)
 
-    def fetch_theme(self, theme_id: str) -> Dict[str, Any]:
+        return await self.post("topic/search", payload=themes_json)
+
+    async def fetch_theme(self, theme_id: str) -> Dict[str, Any]:
         """
         Retrieves detailed information for a specific theme (Topic) by its ID.
-        
+
         Args:
             theme_id: The unique ID of the theme (Topic) to retrieve.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response containing the theme details.
         """
-        # GET to: apexrest/v1/topic/{id}?tag=true
         endpoint = f"topic/{theme_id}?tag=true"
-        return self.get(endpoint)
-    
-    def fetch_character(self, character_id: str) -> Dict[str, Any]:
+        return await self.get(endpoint)
+
+    async def fetch_character(self, character_id: str) -> Dict[str, Any]:
         """
         Retrieves detailed information for a specific character by its ID.
-        
+
         Args:
             character_id: The unique ID of the character to retrieve.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response containing the character details.
         """
-        endpoint = "character/" + character_id
-        return self.get(endpoint)
-    
-    def fetch_author(self, author_id: str) -> Dict[str, Any]:
+        return await self.get("character/" + character_id)
+
+    async def fetch_author(self, author_id: str) -> Dict[str, Any]:
         """
         Retrieves detailed information for a specific author by its ID.
-        
+
         Args:
             author_id: The unique ID of the author to retrieve.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response containing the character details.
         """
-        endpoint = "author/" + author_id
-        return self.get(endpoint)
-    
-    def fetch_home_playlists(self) -> Dict[str, Any]:
+        return await self.get("author/" + author_id)
+
+    async def fetch_home_playlists(self) -> Dict[str, Any]:
         """
         Fetches newish content groups from the API.
-        
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
-            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+            httpx.HTTPStatusError: If the API request fails.
         """
-        return self.get("viewer/home?personal_playlists=true&playlists=true")
-    
-    def fetch_carousel(self) -> Dict[str, Any]:
+        return await self.get("viewer/home?personal_playlists=true&playlists=true")
+
+    async def fetch_carousel(self) -> Dict[str, Any]:
         """
         Fetches the carousel.
-        
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
-            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+            httpx.HTTPStatusError: If the API request fails.
         """
-        return self.get("viewer/home?carousel=true&notifications=true")
-    
+        return await self.get("viewer/home?carousel=true&notifications=true")
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
     def _clean_search_results(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
         """
         Cleans and flattens the nested column structure of the search API response.
-        
+
         The API returns results in 'column1', 'column2', etc. with redundant metadata.
         This function extracts and standardizes the key-value pairs.
         """
         cleaned_results = raw_results.copy()
-        
-        # Iterate through each object type (e.g., Content__c, Content_Grouping__c)
+
         for obj_group in cleaned_results.get('resultObjects', []):
             cleaned_group_results = []
-            
-            # Iterate through each individual search result within the group
+
             for raw_result in obj_group.get('results', []):
                 cleaned_result = {'id': raw_result.get('id')}
-                
-                # Iterate through all 'column' keys (column1, column2, etc.)
+
                 for key, data in raw_result.items():
                     if key.startswith('column') and isinstance(data, dict):
-                        # Use the API field name (e.g., 'Name', 'Subtype__c')
                         api_name = data.get('name')
                         value = data.get('value')
-                        
+
                         if api_name:
-                            # Standardize field names for easier Python use (snake_case)
-                            # Example: 'Thumbnail_Small__c' -> 'thumbnail_small'
                             if api_name.endswith('__c'):
                                 python_name = api_name[:-3].lower().replace('__', '_')
                             else:
                                 python_name = api_name.lower()
-                                
+
                             cleaned_result[python_name] = value
 
                 cleaned_group_results.append(cleaned_result)
-                
-            # Replace the old nested results with the new flat list
+
             obj_group['results'] = cleaned_group_results
-            
-            # Remove redundant column metadata from the object group metadata
+
             if 'metadata' in obj_group and 'fields' in obj_group['metadata']:
                 del obj_group['metadata']['fields']
-                
+
         return cleaned_results
 
-
-    def search_all(self, query: str) -> Dict[str, Any]:
+    async def search_all(self, query: str) -> Dict[str, Any]:
         """
         Performs a comprehensive, multi-object search across the API for a given query,
         and cleans the results into a flat, readable dictionary format.
-        
+
         Args:
             query: The search term (e.g., "Whit's End").
-            
+
         Returns:
             Dict[str, Any]: The parsed, cleaned JSON response containing results.
         """
@@ -701,42 +698,40 @@ class AIOClient:
         search_payload = {
             "searchTerm": query,
             "searchObjects": [
-                {"objectName": "Content__c", "pageNumber": 1, "pageSize": 9, 
+                {"objectName": "Content__c", "pageNumber": 1, "pageSize": 9,
                  "fields": ["Name", "Thumbnail_Small__c", "Subtype__c", "Episode_Number__c"]},
-                {"objectName": "Content_Grouping__c", "pageNumber": 1, "pageSize": 9, 
+                {"objectName": "Content_Grouping__c", "pageNumber": 1, "pageSize": 9,
                  "fields": ["Name", "Image_URL__c", "Type__c"]},
-                {"objectName": "Topic__c", "pageNumber": 1, "pageSize": 9, 
+                {"objectName": "Topic__c", "pageNumber": 1, "pageSize": 9,
                  "fields": ["Name"]},
-                {"objectName": "Author__c", "pageNumber": 1, "pageSize": 9, 
+                {"objectName": "Author__c", "pageNumber": 1, "pageSize": 9,
                  "fields": ["Name", "Profile_Image_URL__c"]},
-                {"objectName": "Character__c", "pageNumber": 1, "pageSize": 9, 
+                {"objectName": "Character__c", "pageNumber": 1, "pageSize": 9,
                  "fields": ["Name", "Thumbnail_Small__c"]},
-                {"objectName": "Badge__c", "pageNumber": 1, "pageSize": 9, 
+                {"objectName": "Badge__c", "pageNumber": 1, "pageSize": 9,
                  "fields": ["Name", "Icon__c", "Type__c"]}
             ]
         }
-        
-        # 1. Perform the raw POST request
-        raw_response = self.post("search", payload=search_payload)
-        
-        # 2. Clean the raw response before returning
+
+        raw_response = await self.post("search", payload=search_payload)
         return self._clean_search_results(raw_response)
-    
-    def search(self, 
-               query: str, 
-               search_objects: Union[str, List[Dict[str, Any]], None] = None
-               ) -> Dict[str, Any]:
+
+    async def search(
+        self,
+        query: str,
+        search_objects: Union[str, List[Dict[str, Any]], None] = None
+    ) -> Dict[str, Any]:
         """
         Performs a flexible search across the API, allowing specification of object types,
         pagination, and automatically correcting object names with '__c'.
-        
+
         Args:
             query: The search term (e.g., "whits flop").
-            search_objects: 
+            search_objects:
                 - str: Single object name (e.g., 'content'). Defaults to page 1, size 10.
                 - List[Dict]: List of object configurations.
                 - None: Defaults to searching only 'Content'.
-            
+
         Returns:
             Dict[str, Any]: The parsed, cleaned JSON response containing results.
         """
@@ -744,7 +739,6 @@ class AIOClient:
             logger.warning("Search query is empty. Returning empty result.")
             return {"searchTerm": "", "resultObjects": []}
 
-        # 1. Normalize and structure the object configurations
         if search_objects is None:
             config_list = [{"objectName": "Content", "pageNumber": 1, "pageSize": 10}]
         elif isinstance(search_objects, str):
@@ -753,23 +747,16 @@ class AIOClient:
             config_list = search_objects
 
         final_search_objects = []
-        for config in config_list:
-            obj_name_raw = config.get('objectName', 'Content')
+        for cfg in config_list:
+            obj_name_raw = cfg.get('objectName', 'Content')
 
-            # --- FIX APPLIED HERE ---
-            # 1. Strip '__c' and make lowercase
-            # 2. Capitalize the main word (TitleCase)
-            # 3. Append the correct lowercase suffix '__c'
             obj_name = obj_name_raw.lower().replace('__c', '')
             obj_name = obj_name.title()
             obj_name += '__c'
-            # --- END FIX ---
 
-            # Get pagination details
-            page_num = config.get('pageNumber', 1)
-            page_size = config.get('pageSize', 10)
-            
-            # Use predefined fields based on the correctly normalized object name
+            page_num = cfg.get('pageNumber', 1)
+            page_size = cfg.get('pageSize', 10)
+
             fields = DEFAULT_FIELDS.get(obj_name, ["Name"])
 
             final_search_objects.append({
@@ -778,80 +765,87 @@ class AIOClient:
                 "pageSize": page_size,
                 "fields": fields
             })
-            
+
         search_payload = {
             "searchTerm": query,
             "searchObjects": final_search_objects
         }
 
-        # 2. Perform the raw POST request
-        raw_response = self.post("search", payload=search_payload)
-        
-        # 3. Clean the raw response before returning
+        raw_response = await self.post("search", payload=search_payload)
         return self._clean_search_results(raw_response)
-        
-    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
+
+    async def get(
+        self,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Performs an unauthenticated GET request to a generalized API endpoint.
-        
+
         Args:
             endpoint: The relative API path (e.g., 'content/random').
             params: Optional dictionary of query parameters.
-            
+            timeout: Optional per-request timeout override.
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
-            requests.exceptions.HTTPError: If the API request fails.
+            httpx.TimeoutException: If the request times out.
+            httpx.HTTPStatusError: If the API request fails.
         """
         full_endpoint = f"{API_PREFIX}{endpoint}"
         url = f"{self.config['api_base']}{full_endpoint}"
-        
-        # Use the provided timeout, or fall back to the class default
+
         request_timeout = timeout if timeout is not None else self.timeout
 
         try:
             logger.info(f"Attempting GET request to: {full_endpoint}")
-            # Add the timeout parameter here
-            response = self.session.get(url, params=params, timeout=request_timeout)
+            response = await self.session.get(url, params=params, timeout=request_timeout)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.Timeout:
+        except httpx.TimeoutException:
             logger.error(f"Request to {full_endpoint} timed out.")
             raise
-        except requests.exceptions.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             logger.error(f"GET request failed: {e}")
             raise
 
-    def post(self, endpoint: str, payload: Dict[str, Any], timeout: Optional[int] = None) -> Dict[str, Any]:
+    async def post(
+        self,
+        endpoint: str,
+        payload: Dict[str, Any],
+        timeout: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Performs an unauthenticated POST request to a generalized API endpoint with JSON data.
-        
+
         Args:
             endpoint: The relative API path (e.g., 'contentgrouping/search').
             payload: The JSON dictionary to be sent in the request body.
-            
+            timeout: Optional per-request timeout override.
+
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
-            
+
         Raises:
-            requests.exceptions.HTTPError: If the API request fails.
+            httpx.TimeoutException: If the request times out.
+            httpx.HTTPStatusError: If the API request fails.
         """
         full_endpoint = f"{API_PREFIX}{endpoint}"
         url = f"{self.config['api_base']}{full_endpoint}"
-        
+
         request_timeout = timeout if timeout is not None else self.timeout
 
         try:
             logger.info(f"Attempting POST request to: {full_endpoint}")
-            # Add the timeout parameter here
-            response = self.session.post(url, json=payload, timeout=request_timeout)
+            response = await self.session.post(url, json=payload, timeout=request_timeout)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.Timeout:
+        except httpx.TimeoutException:
             logger.error(f"POST request to {full_endpoint} timed out.")
             raise
-        except requests.exceptions.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             logger.error(f"POST request failed: {e}")
             raise
-    
