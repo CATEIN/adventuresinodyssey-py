@@ -235,7 +235,7 @@ class AsyncAIOClient:
             response = await self.fetch_content_groupings(
                 grouping_type=grouping_type,
                 page_number=current_page,
-                page_size=100
+                page_size=200
             )
 
             if current_page == 1:
@@ -475,6 +475,7 @@ class AsyncAIOClient:
         page_number: int = 1,
         page_size: int = 25,
         grouping_type: str = 'Album',
+        order_by: Optional[str] = None,
         payload: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
@@ -506,6 +507,8 @@ class AsyncAIOClient:
                 "pageNumber": page_number,
                 "pageSize": page_size
             }
+            if order_by is not None:
+                request_payload["orderBy"] = order_by
             log_info = f"Type: {grouping_type}, Page {page_number}, Size {page_size}"
 
         logger.info(f"Attempting to fetch content groupings ({log_info})")

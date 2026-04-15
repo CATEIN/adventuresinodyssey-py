@@ -38,7 +38,7 @@ class ClubClient(AIOClient):
     Handles login, token management, and authenticated API requests.
     """
     
-    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None, auto_relogin: bool = True, config_path: str = 'club_session.json', timeout: int = 10):
+    def __init__(self, email: str, password: str, viewer_id: Optional[str] = None, profile_username: Optional[str] = None, pin: Optional[str] = None, auto_relogin: bool = True, config_path: str = 'club_session.json', timeout: int = 10, browser_executable: Optional[str] = None, browser_args: Optional[List[str]] = None):
         """
         Initialize the AIO API client
         
@@ -54,6 +54,8 @@ class ClubClient(AIOClient):
 
         super().__init__()
         self.timeout = timeout
+        self.browser_executable = browser_executable
+        self.browser_args = browser_args if browser_args is not None else []
 
         # User credentials
         self.email = email
@@ -123,7 +125,12 @@ class ClubClient(AIOClient):
             login_url = f"{self.config['api_base']}oauth2/authorize?{urlencode(auth_params)}"
             
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                launch_kwargs: Dict[str, Any] = {'headless': True}
+                if self.browser_executable:
+                    launch_kwargs['executable_path'] = self.browser_executable
+                if self.browser_args:
+                    launch_kwargs['args'] = self.browser_args
+                browser = p.chromium.launch(**launch_kwargs)
                 page = browser.new_page()
                 def block_heavy_resources(route):
                     # types to block: 'image', 'stylesheet', 'font', 'media'
