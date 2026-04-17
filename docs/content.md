@@ -6,7 +6,7 @@ Known content pages `type`'s are: `Audio`, `Video` and `Article`
 Example:
 ```python
 from adventuresinodyssey import AIOClient # or ClubClient
-client = AIOClient() # or ClubClient
+client = AIOClient() 
 
 page_id = "a354W0000046U7kQAE" #125: All's Well With Boswell
 
