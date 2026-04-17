@@ -3,6 +3,8 @@
 * [AIOClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/aioclient.md): Use this for accessing any data that the public website can view **without logging in** (e.g., promotional content, general API structures).
 * [ClubClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/clubclient.md): Use this for all private, user-specific, or club-subscriber content. It handles the complex authentication flow and token management necessary for all member-gated API endpoints. `ClubClient` inherits all functions from `AIOClient` .
 
+# [Content](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/content.md)
+
 # Logging
 
 ```python
@@ -12,7 +14,7 @@ set_logging_level('INFO')
 
 # API Client Function Reference
 
-This document provides a quick reference for the public methods available in the `AIOClient` (unauthenticated access) and `ClubClient` (authenticated access) classes.
+Quick reference for the public methods available in the `AIOClient` (unauthenticated access) and `ClubClient` (authenticated access) classes.
 
 | Function | `AIOClient` (Public) | `ClubClient` (Authenticated) | Description |
 | :--- | :---: | :---: | :--- |
