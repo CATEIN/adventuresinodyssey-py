@@ -14,7 +14,7 @@ content = client.fetch_content(page_id, page_type="promo")
 
 print(content["type"]) # this should print Audio. Try changing it to one of the fields in the json below.
 ```
-The response json will look something like this: (Note that data may vary between different page types.)
+The response json will look something like this (Note that data may vary between different page types):
 
 ```json
 {
@@ -159,5 +159,25 @@ The response json will look something like this: (Note that data may vary betwee
         }
     ]
 }
+```
+# Sending progress to the club
+`ClubClient` can send the current state and progress of content with the `send_progress` function. `progress` is in milliseconds. `status` can be `New`, `In Progress` or `Completed`
+```python
+from dotenv import load_dotenv
+import os
+from adventuresinodyssey import ClubClient
+load_dotenv()
+
+client = ClubClient(
+    email=os.getenv("AIO_EMAIL"),
+    password=os.getenv("AIO_PASSWORD"),
+    viewer_id=os.getenv("AIO_VIEwER_ID"),
+    password=os.getenv("AIO_PIN")
+)
+
+episode = "a354W0000046U7kQAE" #125: All's Well With Boswell
+
+progress = client.send_progress(content_id=episode, progress="300000", status="In Progress")
+print(progress)
 ```
 
