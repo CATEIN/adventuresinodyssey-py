@@ -172,7 +172,7 @@ client = ClubClient(
     email=os.getenv("AIO_EMAIL"),
     password=os.getenv("AIO_PASSWORD"),
     viewer_id=os.getenv("AIO_VIEwER_ID"),
-    password=os.getenv("AIO_PIN")
+    pin=os.getenv("AIO_PIN")
 )
 
 episode = "a354W0000046U7kQAE" #125: All's Well With Boswell
