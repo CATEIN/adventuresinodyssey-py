@@ -171,7 +171,7 @@ load_dotenv()
 client = ClubClient(
     email=os.getenv("AIO_EMAIL"),
     password=os.getenv("AIO_PASSWORD"),
-    viewer_id=os.getenv("AIO_VIEwER_ID"),
+    viewer_id=os.getenv("AIO_VIEWER_ID"),
     pin=os.getenv("AIO_PIN")
 )
 
