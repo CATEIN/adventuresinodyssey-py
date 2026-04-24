@@ -1,5 +1,5 @@
 # Content Groupings
-Content Groups can be fetched by type using `fetch_content_groupings()`. Types include:
+Content Groupings can be fetched by type using `fetch_content_groupings()`. Types include:
 * Episode Home
 * Album
 * Series
