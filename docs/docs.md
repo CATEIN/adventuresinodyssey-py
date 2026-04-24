@@ -68,26 +68,3 @@ Quick reference for the public methods available in the `AIOClient` (unauthentic
 | `find_comment_pages()` | ❌ | ✅ | Fetches comments and returns comment pages (most active are top) |
 
 ---
-
-## fetch_content(content_id, page_type)
-```python
-from adventuresinodyssey import AIOClient
-client = AIOClient()
-episode = client.fetch_content(content_id="a35Uh0000005suDIAQ", page_type="promo")
-print(episode["short_name"])
-```
-
-## fetch_character(character_id)
-```python
-from adventuresinodyssey import AIOClient
-client = AIOClient()
-character = client.fetch_character(character_id="a2t4W000005cKTMQA2")
-print(character["characters"][0]["first_name"])
-```
-## fetch_theme(theme_id)
-```python
-from adventuresinodyssey import AIOClient
-client = AIOClient()
-theme = client.fetch_theme(theme_id="a3H4W000004OhqnUAC")
-print(theme["topics"][0]["name"])
-```
