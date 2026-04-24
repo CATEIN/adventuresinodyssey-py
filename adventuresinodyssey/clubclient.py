@@ -4,6 +4,9 @@ Adventures in Odyssey API Authentication Client
 
 import logging
 import json
+import base64
+import hashlib
+import secrets
 from pathlib import Path
 from collections import Counter
 from typing import Optional, Dict, Any, List, Union
@@ -78,7 +81,7 @@ class ClubClient(AIOClient):
         self.config = {
             'api_base': 'https://fotf.my.site.com/aio/services/', 
             'redirect_url': 'https://app.adventuresinodyssey.com/callback',
-            'oauth_url': 'https://signin.auth.focusonthefamily.com',
+            'oauth_url': 'https://auth.focusonthefamily.com',
             'api_version': 'v1',
             'client_id': '3MVG9l2zHsylwlpTFc1ZB3ryOQlpLYIqNo0UV4d0lBRjkbb6TXbw9UNhdcJfom2nnbB.AbNpkRbGoTfruF0gB',
             'client_secret': 'B25FC7FE3E4C155E77C73EA2AC72D410E0762C897798816FC257F0C8FA3618AD',
@@ -116,16 +119,23 @@ class ClubClient(AIOClient):
         try:
             # --- PHASE 1: OAuth Web Login (Get Session Token) ---
             
+            code_verifier = secrets.token_urlsafe(64)  # 86-char URL-safe random string
+            code_challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode()).digest()
+            ).rstrip(b'=').decode()
+
             auth_params = {
                 'response_type': 'code',
                 'client_id': self.config['client_id'],
                 'redirect_uri': self.config['redirect_url'],
+                'code_challenge': code_challenge,          # now derived, not hardcoded
+                'code_challenge_method': 'S256',           # tell the server which method
                 'scope': 'api web refresh_token'
             }
             login_url = f"{self.config['api_base']}oauth2/authorize?{urlencode(auth_params)}"
             
             with sync_playwright() as p:
-                launch_kwargs: Dict[str, Any] = {'headless': True}
+                launch_kwargs: Dict[str, Any] = {'headless': False}
                 if self.browser_executable:
                     launch_kwargs['executable_path'] = self.browser_executable
                 if self.browser_args:
@@ -146,7 +156,7 @@ class ClubClient(AIOClient):
                 # Fill login form
                 # Ensure the selector is correct and fields are visible
                 page.get_by_role("textbox", name="Email Address").wait_for(timeout=10000)
-                page.get_by_role("textbox", name="Email Address").fill(self.email) # Use self.email now
+                page.get_by_role("textbox", name="Email Address").fill(self.email)
                 page.get_by_role("textbox", name="Password").fill(self.password)
                 
                 # Submit form and wait for navigation/redirect
@@ -169,7 +179,7 @@ class ClubClient(AIOClient):
             if not auth_code:
                 raise ValueError("No authorization code ('code' parameter) in callback URL.")
             
-            token_response = self._exchange_code_for_token(auth_code)
+            token_response = self._exchange_code_for_token(auth_code, code_verifier)
             
             # Store tokens and update session header
             self._refresh_token = token_response.get('refresh_token')
@@ -210,6 +220,23 @@ class ClubClient(AIOClient):
             # Raise RuntimeError to be caught by calling function
             raise RuntimeError(f"Failed to login: {e}")
         
+    def _exchange_code_for_token(self, auth_code: str, code_verifier: str) -> Dict[str, Any]:
+        """Exchange authorization code for access and refresh tokens."""
+        token_url = f"{self.config['api_base']}oauth2/token"
+        token_params = {
+            'grant_type': 'authorization_code',
+            'code': auth_code,
+            'redirect_uri': self.config['redirect_url'],
+            'client_id': self.config['client_id'],
+            'client_secret': self.config['client_secret'],
+            'code_verifier': code_verifier,        # <-- added
+        }
+
+        response = self.session.post(token_url, params=token_params, timeout=10)
+        response.raise_for_status()
+
+        return response.json()
+        
     def _save_session_state(self):
         """Saves the essential session data to a local JSON file."""
         if not self._refresh_token or not self.viewer_id:
@@ -219,7 +246,6 @@ class ClubClient(AIOClient):
         state = {
             'refresh_token': self._refresh_token,
             'viewer_id': self.viewer_id,
-            # Note: Storing the PIN is a security risk, but required for profile switching.
             'pin': self.pin 
         }
         
@@ -373,22 +399,6 @@ class ClubClient(AIOClient):
         logger.info(f"Profile selected: '{log_name}' (Viewer ID: {self.viewer_id}).")
         
         return True
-
-    def _exchange_code_for_token(self, auth_code: str) -> Dict[str, Any]:
-        """Exchange authorization code for access and refresh tokens."""
-        token_url = f"{self.config['api_base']}oauth2/token"
-        token_params = {
-            'grant_type': 'authorization_code',
-            'code': auth_code,
-            'redirect_uri': self.config['redirect_url'],
-            'client_id': self.config['client_id'],
-            'client_secret': self.config['client_secret']
-        }
-        
-        response = self.session.post(token_url, params=token_params, timeout=10)
-        response.raise_for_status()
-        
-        return response.json()
     
     def refresh_session(self) -> bool:
         """Refresh the session using the refresh token."""

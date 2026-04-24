@@ -4,6 +4,9 @@ Adventures in Odyssey API Authentication Client (Async)
 
 import logging
 import json
+import base64
+import hashlib
+import secrets
 from pathlib import Path
 from collections import Counter
 from typing import Optional, Dict, Any, List, Union
@@ -140,10 +143,17 @@ class AsyncClubClient(AsyncAIOClient):
             try:
                 # --- PHASE 1: OAuth Web Login (Get Session Token) ---
 
+                code_verifier = secrets.token_urlsafe(64)  # 86-char URL-safe random string
+                code_challenge = base64.urlsafe_b64encode(
+                    hashlib.sha256(code_verifier.encode()).digest()
+                ).rstrip(b'=').decode()
+
                 auth_params = {
                     'response_type': 'code',
                     'client_id': self.config['client_id'],
                     'redirect_uri': self.config['redirect_url'],
+                    'code_challenge': code_challenge,          # now derived, not hardcoded
+                    'code_challenge_method': 'S256',           # tell the server which method
                     'scope': 'api web refresh_token'
                 }
                 login_url = f"{self.config['api_base']}oauth2/authorize?{urlencode(auth_params)}"
@@ -193,7 +203,7 @@ class AsyncClubClient(AsyncAIOClient):
                 if not auth_code:
                     raise ValueError("No authorization code ('code' parameter) in callback URL.")
 
-                token_response = await self._exchange_code_for_token(auth_code)
+                token_response = await self._exchange_code_for_token(auth_code, code_verifier)
 
                 # Store tokens and update default headers
                 self._refresh_token = token_response.get('refresh_token')
@@ -375,7 +385,7 @@ class AsyncClubClient(AsyncAIOClient):
 
         return True
 
-    async def _exchange_code_for_token(self, auth_code: str) -> Dict[str, Any]:
+    async def _exchange_code_for_token(self, auth_code: str, code_verifier: str) -> Dict[str, Any]:
         """Exchange authorization code for access and refresh tokens."""
         token_url = f"{self.config['api_base']}oauth2/token"
         token_params = {
@@ -383,7 +393,8 @@ class AsyncClubClient(AsyncAIOClient):
             'code': auth_code,
             'redirect_uri': self.config['redirect_url'],
             'client_id': self.config['client_id'],
-            'client_secret': self.config['client_secret']
+            'client_secret': self.config['client_secret'],
+            'code_verifier': code_verifier,
         }
 
         response = await self._get_client().post(token_url, params=token_params)
