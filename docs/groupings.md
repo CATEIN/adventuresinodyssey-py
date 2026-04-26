@@ -19,6 +19,17 @@ for group in groups["contentGroupings"]:
 ```
 User created playlists can be fetched with `fetch_playlists()`
 
+# Content Group
+Content Groups can be fetched with `fetch_content_group()`
+```python
+from adventuresinodyssey import AIOClient # or ClubClient
+client = AIOClient()
+group_id = "a314W000000CVR1QAO" #73: 28 Hours
+group = client.fetch_content_group(group_id)
+for content in group["contentGroupings"][0]["contentList"]:
+    print(content["name"])
+```
+
 # Badges
 `ClubClient` can fetch a list of badges and indivudual badges using `fetch_badges()` and `fetch_badge()`
 ```python
