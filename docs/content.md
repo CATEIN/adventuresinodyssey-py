@@ -1,6 +1,11 @@
 # Content
 Content pages on the club can be fetched using the `fetch_content()` function, provided you supply a `content_id` and optionally a `page_type` (`full`, `radio`, `promo`). `page_type` defaults to `promo` on `AIOClient`, while `ClubClient` defaults to `full`.
-Known content pages `type`'s are: `Audio`, `Video` and `Article`
+Known content pages `type`'s are:
+* Audio
+* Video
+* Article
+* Book
+* Download
 
 
 Example:
