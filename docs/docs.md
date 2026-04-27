@@ -1,8 +1,15 @@
 # Clients
 
-* [AIOClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/aioclient.md): Use this for accessing any data that the public website can view **without logging in** (e.g., promotional content, general API structures).
-* [ClubClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/clubclient.md): Use this for all private, user-specific, or club-subscriber content. It handles the complex authentication flow and token management necessary for all member-gated API endpoints. `ClubClient` inherits all functions from `AIOClient` .
+## [AIOClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/aioclient.md) 
+Synchronous client for accessing any data that the public website can view **without logging in** (e.g., promotional content, general API structures).
+## [ClubClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/clubclient.md)
+Synchronous authenticated client for all private, user-specific, or club-subscriber content. It handles the complex authentication flow and token management necessary for all member-gated API endpoints. `ClubClient` inherits all functions from `AIOClient` .
+## AsyncAIOClient
+Asynchronous version of [AIOClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/aioclient.md).
+## AsyncClubClient
+Asynchronous version of [ClubClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/clubclient.md).
 
+# Get stuff from the Club
 ## [Content](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/content.md)
 ## [Groupings](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/groupings.md)
 
