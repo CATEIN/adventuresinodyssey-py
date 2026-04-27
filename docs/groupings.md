@@ -8,6 +8,7 @@ Content Groupings can be fetched by type using `fetch_content_groupings()`. Type
 * Bonus Video Home
 * Life Lesson
 * Book Series
+* Curriculum
 * Playlist (ClubClient only)
 
 ```python
@@ -20,7 +21,7 @@ for group in groups["contentGroupings"]:
 User created playlists can be fetched with `fetch_playlists()`
 
 # Content Group
-Content Groups can be fetched with `fetch_content_group()`
+Content Groups can be fetched by id with `fetch_content_group()`
 ```python
 from adventuresinodyssey import AIOClient # or ClubClient
 client = AIOClient()
