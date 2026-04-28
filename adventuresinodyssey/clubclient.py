@@ -135,7 +135,7 @@ class ClubClient(AIOClient):
             login_url = f"{self.config['api_base']}oauth2/authorize?{urlencode(auth_params)}"
             
             with sync_playwright() as p:
-                launch_kwargs: Dict[str, Any] = {'headless': False}
+                launch_kwargs: Dict[str, Any] = {'headless': True}
                 if self.browser_executable:
                     launch_kwargs['executable_path'] = self.browser_executable
                 if self.browser_args:
@@ -586,33 +586,38 @@ class ClubClient(AIOClient):
         Raises:
             requests.exceptions.HTTPError: If the API request fails after all retry attempts.
         """
-        return self.get(f"badges/{badge_id}")
+        return self.get(f"badge/{badge_id}")
             
-    def send_progress(self, content_id: str, progress: int, status: str) -> Dict[str, Any]:
+    def send_progress(self, content_id: str, progress: Optional[int] = None, status: str = "") -> Dict[str, Any]:
         """
         Sends playback progress and status updates for a specific content ID.
-        
+
         Sends a PUT request to /v1/content with a JSON body.
-        
+
         Args:
             content_id: The ID of the content being updated.
-            progress: The current playback position in seconds (integer).
+            progress: The current playback position in milliseconds (optional).
             status: The playback status, typically 'In Progress' or 'Completed'.
-            
+
         Returns:
-            Dict[str, Any]: The parsed JSON response from the API (usually success confirmation).
-            
+            Dict[str, Any]: The parsed JSON response from the API.
+
         Raises:
-            requests.exceptions.HTTPError: If the API request fails after all retry attempts.
+            requests.exceptions.HTTPError: If the API request fails after retry attempts.
         """
-        
+
         request_payload = {
             "content_id": content_id,
             "status": status,
-            "current_progress": progress
         }
-        
-        log_info = f"ID: {content_id}, Status: {status}, Progress: {progress}s"
+
+        if progress is not None:
+            request_payload["current_progress"] = progress
+
+        log_info = f"ID: {content_id}, Status: {status}"
+        if progress is not None:
+            log_info += f", Progress: {progress}s"
+
         logger.info(f"Attempting to send progress update: ({log_info})")
 
         return self.put("content", request_payload)
@@ -656,7 +661,7 @@ class ClubClient(AIOClient):
         return self.post("badge/search", request_payload)
     
     
-    def fetch_comments(self, related_id: str = None, page_number: int = 1, page_size: int = 10) -> Dict[str, Any]:
+    def fetch_comments(self, related_id: str = None, page_number: int = 1, page_size: int = 10, order_by: str = "CreatedDate DESC") -> Dict[str, Any]:
         """
         Fetches a paginated list of comments. Can fetch comments related to a 
         specific content item or fetch a general list of comments if no ID is provided.
@@ -678,7 +683,7 @@ class ClubClient(AIOClient):
         json_data = {
             "pageNumber": page_number,
             "pageSize": page_size,
-            "orderBy": "CreatedDate DESC"
+            "orderBy": order_by
         }
 
         # Only include 'relatedToId' in the payload if a related_id was actually passed.

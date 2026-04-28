@@ -587,15 +587,15 @@ class AsyncClubClient(AsyncAIOClient):
         Raises:
             httpx.HTTPStatusError: If the API request fails after all retry attempts.
         """
-        return await self.get(f"badges/{badge_id}")
+        return await self.get(f"badge/{badge_id}")
 
-    async def send_progress(self, content_id: str, progress: int, status: str) -> Dict[str, Any]:
+    async def send_progress(self, content_id: str, progress: Optional[int] = None, status: str = "") -> Dict[str, Any]:
         """
         Sends playback progress and status updates for a specific content ID.
 
         Args:
             content_id: The ID of the content being updated.
-            progress: The current playback position in seconds (integer).
+            progress: The current playback position in seconds (optional).
             status: The playback status, typically 'In Progress' or 'Completed'.
 
         Returns:
@@ -607,10 +607,15 @@ class AsyncClubClient(AsyncAIOClient):
         request_payload = {
             "content_id": content_id,
             "status": status,
-            "current_progress": progress
         }
 
-        log_info = f"ID: {content_id}, Status: {status}, Progress: {progress}s"
+        if progress is not None:
+            request_payload["current_progress"] = progress
+
+        log_info = f"ID: {content_id}, Status: {status}"
+        if progress is not None:
+            log_info += f", Progress: {progress}s"
+
         logger.info(f"Attempting to send progress update: ({log_info})")
 
         return await self.put("content", request_payload)
@@ -652,7 +657,7 @@ class AsyncClubClient(AsyncAIOClient):
 
         return await self.post("badge/search", request_payload)
 
-    async def fetch_comments(self, related_id: str = None, page_number: int = 1, page_size: int = 10) -> Dict[str, Any]:
+    async def fetch_comments(self, related_id: str = None, page_number: int = 1, page_size: int = 10, order_by: str = "CreatedDate DESC") -> Dict[str, Any]:
         """
         Fetches a paginated list of comments.
 
@@ -670,7 +675,7 @@ class AsyncClubClient(AsyncAIOClient):
         json_data = {
             "pageNumber": page_number,
             "pageSize": page_size,
-            "orderBy": "CreatedDate DESC"
+            "orderBy": order_by
         }
 
         if related_id is not None:
