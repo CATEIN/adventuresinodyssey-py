@@ -1,5 +1,8 @@
 # ClubClient
 
+> [!IMPORTANT]  
+> Login on version `0.2.2` or older does not work on `ClubClient` . Ensure you are on the latest version.
+
 ClubClient is the authenticated client for interacting the Adventures In Odyssey API. Login is necessary for use
 
 Login example:
@@ -30,5 +33,3 @@ print("Random episode: " + random_episode["short_name"])
 
 `login()` doesnt need to be called since `ClubClient` automatically logs in if no session was cached. It also refreshes the session on `401` response codes.
  Full playwright login can be disabled by setting `auto_relogin=False`
-
- 
