@@ -50,7 +50,7 @@ Quick reference for the public methods available in the `AIOClient` (unauthentic
 | **Upload content** | | | |
 | `create_playlist(name, image_url, content_ids, playlist_json)` | ❌ | ✅ | Creates a playlist with the provided data.|
 | `update_playlist(playlist, name, image_url, content_ids, add_ids, remove_ids)` | ❌ | ✅ | Updates a playlist with the provided data.|
-| `send_progress(content_id, progress, status)`  | ❌ | ✅ | Sends content progress and state to the club |
+| `update_content_status(content_id, progress, status, devotional_complete)`  | ❌ | ✅ | Sends content progress and state to the club |
 | **Comments/Commenting** | | | |
 | `post_comment(message, related_id)` | ❌ | ✅ | Posts a comment to a given page ID. |
 | `post_reply(message, related_id)` | ❌ | ✅ | Posts a reply to a given comment ID. |
@@ -71,6 +71,7 @@ Quick reference for the public methods available in the `AIOClient` (unauthentic
 | **Custom functions** | | | |
 | `cache_episodes(grouping_type, include_bonus)` | ✅ | ✅ | Caches all episodes by fetching all albums and returns a flattened list. |
 | `cache_albums(grouping_type, include_club_exclusive)` | ✅ | ✅ | Caches all albums and returns a flattened list. |
+| `cache_audiobooks()`| ✅ | ✅ | Caches all audiobooks and returns a flattened list. |
 | `cache_content_groupings(generate_themes)` | ✅ | ✅ | Caches all content groupings and returns a flattened list. |
 | `fetch_signed_cookie(type)` | ❌ | ✅ | Fetches a signed cookie. Either audio or video |
 | `find_comment_pages()` | ❌ | ✅ | Fetches comments and returns comment pages (most active are top) |
