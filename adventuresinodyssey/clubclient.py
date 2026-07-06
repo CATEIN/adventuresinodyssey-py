@@ -588,9 +588,16 @@ class ClubClient(AIOClient):
         """
         return self.get(f"badge/{badge_id}")
             
-    def send_progress(self, content_id: str, progress: Optional[int] = None, status: str = "") -> Dict[str, Any]:
+    def update_content_status(
+            self,
+            content_id: str,
+            progress: Optional[int] = None,
+            status: str = "",
+            devotional_complete: Optional[bool] = None,
+        ) -> Dict[str, Any]:
         """
-        Sends playback progress and status updates for a specific content ID.
+        Sends playback progress, status, and/or devotional completion updates
+        for a specific content ID.
 
         Sends a PUT request to /v1/content with a JSON body.
 
@@ -598,6 +605,9 @@ class ClubClient(AIOClient):
             content_id: The ID of the content being updated.
             progress: The current playback position in milliseconds (optional).
             status: The playback status, typically 'In Progress' or 'Completed'.
+                    Only included in the request if non-empty.
+            devotional_complete: If provided, marks the associated devotional as
+                                complete (True) or incomplete (False). Optional.
 
         Returns:
             Dict[str, Any]: The parsed JSON response from the API.
@@ -608,20 +618,28 @@ class ClubClient(AIOClient):
 
         request_payload = {
             "content_id": content_id,
-            "status": status,
         }
+
+        if status:
+            request_payload["status"] = status
 
         if progress is not None:
             request_payload["current_progress"] = progress
 
-        log_info = f"ID: {content_id}, Status: {status}"
+        if devotional_complete is not None:
+            request_payload["devotional_complete"] = devotional_complete
+
+        log_info = f"ID: {content_id}"
+        if status:
+            log_info += f", Status: {status}"
         if progress is not None:
             log_info += f", Progress: {progress}s"
+        if devotional_complete is not None:
+            log_info += f", Devotional Complete: {devotional_complete}"
 
         logger.info(f"Attempting to send progress update: ({log_info})")
 
         return self.put("content", request_payload)
-
 
     def fetch_random(self) -> Dict[str, Any]:
         """

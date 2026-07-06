@@ -454,6 +454,63 @@ class AsyncAIOClient:
 
         logger.info(f"Successfully cached {len(all_groupings)} total groupings.")
         return all_groupings
+    
+    async def cache_audiobooks(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves all Audiobook content from the search endpoint and returns
+        them as a flattened list.
+
+        This function automatically handles pagination across all pages.
+
+        Endpoint:
+            GET content/search?content_type=Audio&content_subtype=Audiobook
+                &community=Adventures+In+Odyssey&orderby=Order__c+ASC
+                &pagenum={page}&pagecount=200&player=true
+
+        Returns:
+            List[Dict[str, Any]]: A flat list of audiobook result dictionaries.
+        """
+        logger.info("Starting process to cache all Audiobooks.")
+
+        all_audiobooks = []
+        current_page = 1
+        total_pages = 1  # Will be updated after the first API call
+        page_size = 200
+
+        # Loop until the current page exceeds the total number of pages
+        while current_page <= total_pages:
+            logger.debug(f"Fetching Audiobook page {current_page} of {total_pages}...")
+
+            response = await self.get(
+                "content/search",
+                params={
+                    "content_type": "Audio",
+                    "content_subtype": "Audiobook",
+                    "community": "Adventures In Odyssey",
+                    "orderby": "Order__c ASC",
+                    "pagenum": current_page,
+                    "pagecount": page_size,
+                    "player": "true",
+                },
+            )
+
+            # Compute total pages on the first request from total_count
+            if current_page == 1:
+                try:
+                    total_count = response['total_count']
+                    # Integer ceiling division without math.ceil
+                    total_pages = (total_count + page_size - 1) // page_size if total_count else 1
+                    logger.info(f"Total Audiobooks: {total_count} -> {total_pages} page(s) to retrieve.")
+                except (KeyError, TypeError):
+                    logger.warning("Could not determine total_count from response. Assuming only one page.")
+
+            results = response.get('results', [])
+            all_audiobooks.extend(results)
+
+            current_page += 1
+
+        logger.info(f"Successfully cached {len(all_audiobooks)} Audiobooks across {total_pages} page(s).")
+        return all_audiobooks
 
     async def fetch_content_group(self, group_id: str) -> Dict[str, Any]:
         """
