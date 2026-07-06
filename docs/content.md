@@ -166,7 +166,7 @@ The response json will look something like this (Note that data may vary between
 }
 ```
 # Sending progress to the club
-`ClubClient` can send the current state and progress of content with the `send_progress()` function. `progress` is in milliseconds. `status` can be `New`, `In Progress` or `Completed`
+`ClubClient` can send the current state and progress of content with the `update_content_status()` function. `progress` is in milliseconds. `status` can be `New`, `In Progress` or `Completed`. Complete devotionals with `devotional_complete=True`
 ```python
 from dotenv import load_dotenv
 import os
@@ -182,7 +182,7 @@ client = ClubClient(
 
 episode = "a354W0000046U7kQAE" #125: All's Well With Boswell
 
-progress = client.send_progress(content_id=episode, progress="300000", status="In Progress")
+progress = client.update_content_status(content_id=episode, progress="300000", status="In Progress")
 print(progress)
 ```
 
