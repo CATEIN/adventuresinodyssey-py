@@ -33,3 +33,5 @@ print("Random episode: " + random_episode["short_name"])
 
 `login()` doesnt need to be called since `ClubClient` automatically logs in if no session was cached. It also refreshes the session on `401` response codes.
  Full playwright login can be disabled by setting `auto_relogin=False`
+
+ Upon successful login, ClubClient creates a json file and stores the `refresh_token`, `viewer_id` and `pin`.
