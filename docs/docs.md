@@ -12,6 +12,7 @@ Asynchronous version of [ClubClient](https://github.com/CATEIN/adventuresinodyss
 # Get stuff from the Club
 ## [Content](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/content.md)
 ## [Groupings](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/groupings.md)
+## [Cache Functions](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/cachefunctions.md)
 
 # Logging
 
