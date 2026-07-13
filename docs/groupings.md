@@ -31,6 +31,15 @@ for content in group["contentGroupings"][0]["contentList"]:
     print(content["name"])
 ```
 
+# Themes
+```python
+from adventuresinodyssey import AIOClient # or ClubClient
+client = AIOClient()
+themes = client.fetch_themes(page_number=1, page_size=5)
+for theme in themes["topics"]:
+    print(theme["name"])
+```
+
 # Badges
 `ClubClient` can fetch a list of badges and indivudual badges using `fetch_badges()` and `fetch_badge()`
 ```python
