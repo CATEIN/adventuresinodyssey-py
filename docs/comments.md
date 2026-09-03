@@ -3,6 +3,9 @@
 Comments can be viewed on [Content](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/content.md#content) and [Content Groups](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/groupings.md#content-group).
 Comments can be posted if `enable_commenting` is true. Available for [ClubClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/clubclient.md) only.
 
+# related_id
+`related_id` serves as the parent container or location identifier that links comments to a specific piece of content, content group, or root comment.
+
 # Get Comments
 
 Comments can be fetched by `related_id` with `fetch_comments()`:
@@ -72,12 +75,19 @@ for main_comment in comment_data.get("comments", []):
         print(f"  └── {reply['userName']}: {reply['message']}")
 ```
 
-# Post a comment 
+# Post a comment
 
-coming soon
+A comment can be posted with `post_comment(message, related_id)`. Comments `message` length must be under 255 characters.
+> [!IMPORTANT]  
+> Only use `post_comment()` for a new comment, not a reply.
+
 
 # Post a reply
 
-coming soon
+A reply to a comment can be posted with `post_reply(message, related_id)`. Replies `message` length must be under 255 characters.
+
+# Delete a comment
+
+`delete_comment(comment_id)`
 
 
