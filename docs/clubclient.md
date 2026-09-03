@@ -1,7 +1,7 @@
 # ClubClient
 
 > [!IMPORTANT]  
-> Login on version `0.2.2` or older does not work on `ClubClient` . Ensure you are on the latest version.
+> Login on version `0.2.2` or older no longer works on `ClubClient` . Ensure you are on the latest version.
 
 ClubClient is the authenticated client for interacting the Adventures In Odyssey API. Login is necessary for use
 
