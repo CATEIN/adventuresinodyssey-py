@@ -41,7 +41,7 @@ for comment in comments["comments"]:
 
 # Get a Comment
 
-A single comment can be fetched by `comment_id` with `fetch_comment()`. For replies to show up, `related_id` must also be given (`related_id` is page the comment was posted to, if the comment is a reply the `related_id` is the original comment's `id`). This is useful for checking if a comment was approved or has replies.
+A single comment can be fetched by `comment_id` with `fetch_comment()`. For replies to show up, `related_id` must also be given (`related_id` is the page the comment was posted to. If the comment is a reply, the `related_id` is the original comment's `id`). This is useful for checking if a comment was approved or has replies:
 
 ```python
 import os
@@ -71,3 +71,13 @@ for main_comment in comment_data.get("comments", []):
     for reply in main_comment.get("comments", []):
         print(f"  └── {reply['userName']}: {reply['message']}")
 ```
+
+# Post a comment 
+
+coming soon
+
+# Post a reply
+
+coming soon
+
+
