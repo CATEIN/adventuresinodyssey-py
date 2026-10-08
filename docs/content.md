@@ -1,188 +1,119 @@
 # Content
-Content pages on the club can be fetched using the `fetch_content()` function, provided you supply a `content_id` and optionally a `page_type` (`full`, `radio`, `promo`). `page_type` defaults to `promo` on `AIOClient`, while `ClubClient` defaults to `full`.
-Known content pages `type`'s are:
-* Audio
-* Video
-* Article
-* Book
-* Download
 
+A *content page* is a single item on the Club: an episode, video, article, book, download, etc. Fetch one by ID with `fetch_content()`:
 
-Example:
 ```python
-from adventuresinodyssey import AIOClient # or ClubClient
-client = AIOClient() 
+from adventuresinodyssey import AIOClient  # or ClubClient
 
-page_id = "a354W0000046U7kQAE" #125: All's Well With Boswell
+client = AIOClient()
 
-content = client.fetch_content(page_id, page_type="promo")
+content = client.fetch_content("a354W0000046U7kQAE")  # #125: All's Well With Boswell
 
-print(content["type"]) # this should print Audio. Try changing it to one of the fields in the json below.
+print(content["short_name"])     # #125: All's Well With Boswell
+print(content["type"])           # Audio
+print(content["subtype"])        # Episode
+print(content["album_name"])     # #08: Beyond Expectations
+print(content["bible_verse"])    # Luke 16:10-12
 ```
-The response json will look something like this (Note that data may vary between different page types):
 
-```json
-{
-    "views": 13636,
-    "type": "Audio",
-    "title_url": "all's-well-with-boswell",
-    "thumbnail_small": "https://d23sy43gbewnpt.cloudfront.net/public/images/content/all's_well_with_boswell_(0-00-00-00)-sm.jpg",
-    "thumbnail_medium": "https://d23sy43gbewnpt.cloudfront.net/public/images/content/all's_well_with_boswell_(0-00-00-00)-med.jpg",
-    "thumbnail_large": "https://d23sy43gbewnpt.cloudfront.net/public/images/content/all's_well_with_boswell_(0-00-00-00).jpg",
-    "tags": [
-        {
-            "topic_id": "a3H4W000004Ohw7UAC",
-            "name": "Responsibility",
-            "id": "a334W000000rJboQAE"
-        }
-    ],
-    "subtype": "Episode",
-    "stream_url": "https://media.adventuresinodyssey.com/private/audio/episode/...",
-    "signed_cookie": "https://media.adventuresinodyssey.com/private/audio/episode/9781604821246/full/AppleHLS1/*...",
-     "id": "a354W0000046U7kQAE",
-    "has_devotional": true,
-    "extras": [],
-    "episode_number": "125",
-    "download_url": "https://media.adventuresinodyssey.com/private/audio/episode/...",
-    "devotional": "<div class=\"aioc-devotional\">\n<p>It’s the simplest job in the world: feed the goldfish...",
-    "description": "When Robyn gets her first real babysitting job, it turns out to be more of an adventure than she could ever imagine!",
-    "short_name": "#125: All's Well With Boswell",
-    "relative_air_day": "Aired 10/23/2025",
-    "recent_air_date": "2025-10-23T06:00:00.000Z",
-    "rating_count": 1984,
-    "rating_average": 4.0,
-    "bible_verse": "Luke 16:10-12",
-    "author": "Phil Lollar",
-    "album_name": "#08: Beyond Expectations",
-    "air_date": "1990-08-25T06:00:00.000Z",
-    "authors": [
-        {
-            "role": "Writer",
-            "recommended_by_author": null,
-            "read_only": null,
-            "publishedPieces": null,
-            "profileImageUrl": null,
-            "name": "Phil Lollar",
-            "isHighlighted": null,
-            "is_bookmarked": null,
-            "id": "a2m4W000006CVw2QAG",
-            "bio": null,
-            "aioPriority": null
-        }
-    ],
-    "characters": [
-            {
-                "voiced_by_id": null,
-                "voiced_by": null,
-                "thumbnail_small": "https://d23sy43gbewnpt.cloudfront.net/public/images/character/tom_2026_thumbnail-sm.png",
-                "thumbnail_medium": "https://d23sy43gbewnpt.cloudfront.net/public/images/character/tom_2026_thumbnail-med.png",
-                "thumbnail_large": "https://d23sy43gbewnpt.cloudfront.net/public/images/character/tom_2026_thumbnail.png",
-                "thumbnail_alternative_text": null,
-                "series_with": null,
-                "photos": null,
-                "nickname": "Tom",
-                "name": "Tom Riley",
-                "job": null,
-                "id": "a2t4W000005cKSdQAM",
-                "get_to_know_in": null,
-                "first_name": null,
-                "featured_in": null,
-                "description": null,
-                "character_bio": null,
-                "appearances": null
-            }
-    ],
-    "recommendations": [
-        {
-            "views": 12937,
-            "type": "Audio",
-            "title_url": "harley-takes-the-case,-part-1-of-2",
-            "thumbnail_small_alternate": null,
-            "thumbnail_small": "https://d23sy43gbewnpt.cloudfront.net/public/images/content/25_-_harley_takes_the_case_part_1_thumbnail-sm.jpg",
-            "thumbnail_medium": "https://d23sy43gbewnpt.cloudfront.net/public/images/content/25_-_harley_takes_the_case_part_1_thumbnail-med.jpg",
-            "tags": [
-                {
-                    "topic_id": "a3H4W000004Ohw7UAC",
-                    "name": "Responsibility",
-                    "id": "a334W000000rLt6QAE"
-                }
-            ],
-            "subtype": "Episode",
-            "store_path": null,
-            "store_link_type": null,
-            "store_link": null,
-            "short_name": "#025: Harley Takes the Case, Part 1 of 2",
-            "shares": 0,
-            "share_origin": null,
-            "share_hidden": false,
-            "share_access": null,
-            "relative_air_day": null,
-            "recent_air_date": null,
-            "rating_count": 788,
-            "rating_average": 4.3,
-            "promo_url": null,
-            "progress": {
-                "status": "New",
-                "dismissed_help": null,
-                "devotional_complete": null,
-                "current_progress": 0,
-                "content_activity_time_stamp": null
-            },
-            "name": "Harley Takes the Case, Part 1 of 2",
-            "media_variant": "full",
-            "media_length": 180000,
-            "link_to_object": "Content__c",
-            "link_to_id": "a354W0000046Tn2",
-            "likes": 0,
-            "last_viewed_date": null,
-            "last_published_date": "1988-05-07T06:00:00.000Z",
-            "is_liked": null,
-            "is_bookmarked": false,
-            "id": "a354W0000046Tn2QAE",
-            "has_devotional": true,
-            "episode_number": "025",
-            "download_url": null,
-            "devotional_theme": null,
-            "devotional": "You might assume that criminals who spend weeks planning the perfect crime wo...",
-            "description_for_item_in_content_grouping": null,
-            "description": "Officer David Harley tries to find a missing boy named Steve Larson.",
-            "content_link_override_is_external": false,
-            "content_link_base_domain_override": null,
-            "church_leader_guest": false,
-            "brand": null,
-            "bookmarks": 1633,
-            "bc_rating_count": 0,
-            "bc_rating_average": 0,
-            "authors": [],
-            "author_id": null,
-            "author": null,
-            "album_name": "The Officer Harley Collection",
-            "air_date": "1988-05-07T06:00:00.000Z",
-            "aioc_guest": true,
-            "access_start": null,
-            "access_end": null
-        }
-    ]
-}
-```
-# Sending progress to the club
-`ClubClient` can send the current state and progress of content with the `update_content_status()` function. `progress` is in milliseconds. `status` can be `New`, `In Progress` or `Completed`. Complete devotionals with `devotional_complete=True`
+The ID is the last part of the content URL: `https://app.adventuresinodyssey.com/content/a354W0000046U7kQAE`.
+
+## Page types
+
+`fetch_content(content_id, page_type=...)` can fetch three versions of a page. They have the same metadata but different media:
+
+| `page_type` | Client | Media you get |
+| --- | --- | --- |
+| `"promo"` | Both (default on `AIOClient`) | A short (~30 second) sample |
+| `"radio"` | Both | The radio version, for episodes in the current [radio rotation](browsing.md#radio-schedule) |
+| `"full"` | `ClubClient` only (default there) | The full episode or video |
+
+`AIOClient` raises `ValueError` if you ask for `"full"`.
+
+## Content types
+
+`content["type"]` is one of:
+
+* `Audio`: episodes, audiobooks, podcasts, soundtracks (`subtype` tells you which, e.g. `"Episode"`, `"Audiobook"`, `"Podcast"`)
+* `Video`
+* `Article`
+* `Book`
+* `Download`
+
+## Useful fields
+
+The response is a large dictionary. These are the fields you'll use most. Some are `None` or missing depending on the type of content.
+
+| Field | Example | Notes |
+| --- | --- | --- |
+| `id` | `"a354W0000046U7kQAE"` | |
+| `name` | `"All's Well With Boswell"` | |
+| `short_name` | `"#125: All's Well With Boswell"` | Name with the episode number. |
+| `type`, `subtype` | `"Audio"`, `"Episode"` | See above. |
+| `episode_number` | `"125"` | A string. Bonus episodes have numbers like `"124a"`. |
+| `description` | `"When Robyn gets her first..."` | Plain text. |
+| `album_name` | `"#08: Beyond Expectations"` | |
+| `air_date` | `"1990-08-25T00:00:00.000Z"` | Original air date. |
+| `recent_air_date`, `relative_air_day` | `"Aired Last 10/23/2025"` | Most recent radio airing. |
+| `media_length` | `1382416` | Length in milliseconds. (`30` for promo pages.) |
+| `author` | `"Phil Lollar"` | Main writer. `authors` has everyone, with roles. |
+| `characters` | `[{"name": "Tom Riley", ...}]` | Characters in the episode. |
+| `tags` | `[{"name": "Responsibility", "topic_id": ...}]` | Themes. `topic_id` works with `fetch_theme()`. |
+| `bible_verse` | `"Luke 16:10-12"` | |
+| `devotional` | `"<div class=...>"` | HTML. `has_devotional` says if there is one. |
+| `thumbnail_small`, `thumbnail_medium`, `thumbnail_large` | URL | Cover images. |
+| `rating_average`, `rating_count`, `views`, `bookmarks` | | Stats. |
+| `previous_episode`, `next_episode` | content dict | Neighbors in the album. |
+| `in_album` | list of content | Everything in the same album. |
+| `recommendations` | list of content | "You might also like". |
+| `progress` | `{"status": "New", "current_progress": 0}` | The profile's progress (ClubClient). |
+| `enable_commenting` | `True` | Whether the page has [comments](comments.md). |
+| `download_url`, `stream_url`, `signed_cookie` | URL | See [Media URLs](#media-urls). |
+
+Run `print(json.dumps(content, indent=2))` to see everything.
+
+## Media URLs
+
+Content pages include the fields the Club's own player uses. Which version they point to (promo, radio or full) depends on the [page type](#page-types).
+
+| Field | What it is |
+| --- | --- |
+| `download_url` | URL of the audio or video file. |
+| `stream_url` | URL of the stream the player loads. |
+| `signed_cookie` | The signature the player uses to access the media. |
+
+These URLs are signed and expire after a while. This library gives you the metadata only. It doesn't play or download media.
+
+## Saving listening progress
+
+`ClubClient` can update the current profile's progress on an item, just like the website's player:
+
 ```python
-from dotenv import load_dotenv
-import os
-from adventuresinodyssey import ClubClient
-load_dotenv()
-
-client = ClubClient(
-    email=os.getenv("AIO_EMAIL"),
-    password=os.getenv("AIO_PASSWORD"),
-    viewer_id=os.getenv("AIO_VIEWER_ID"),
-    pin=os.getenv("AIO_PIN")
+client.update_content_status(
+    content_id="a354W0000046U7kQAE",
+    progress=300000,          # position in milliseconds (here, 5:00)
+    status="In Progress",
 )
 
-episode = "a354W0000046U7kQAE" #125: All's Well With Boswell
+client.update_content_status(content_id="a354W0000046U7kQAE", status="Completed")
 
-progress = client.update_content_status(content_id=episode, progress="300000", status="In Progress")
-print(progress)
+client.update_content_status(content_id="a354W0000046U7kQAE", devotional_complete=True)
 ```
 
+| Argument | Description |
+| --- | --- |
+| `content_id` | The content to update. |
+| `progress` | Playback position in **milliseconds**, as an `int`. |
+| `status` | `"New"`, `"In Progress"` or `"Completed"`. |
+| `devotional_complete` | `True` to mark the devotional as done. |
+
+Only the arguments you pass are sent. Saved progress shows up in `content["progress"]` the next time you fetch the page.
+
+## Random episode
+
+`ClubClient` only:
+
+```python
+episode = client.fetch_random()
+print(episode["short_name"])
+```

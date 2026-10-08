@@ -70,6 +70,9 @@ class AsyncClubClient(AsyncAIOClient):
         self.profile_username = profile_username
         self.pin = pin if pin is not None else "0000"
 
+        # Remember what the user passed in, so logout() can restore it
+        self._initial_profile = (self.viewer_id, self.profile_username, self.pin)
+
         # Session tokens
         self._refresh_token: Optional[str] = None
         self.session_token: Optional[str] = None
@@ -83,6 +86,7 @@ class AsyncClubClient(AsyncAIOClient):
         self.config = {
             'api_base': 'https://fotf.my.site.com/aio/services/',
             'redirect_url': 'https://app.adventuresinodyssey.com/callback',
+            'logout_url': 'https://app.adventuresinodyssey.com/logout',
             'oauth_url': 'https://signin.auth.focusonthefamily.com',
             'api_version': 'v1',
             'client_id': '3MVG9l2zHsylwlpTFc1ZB3ryOQlpLYIqNo0UV4d0lBRjkbb6TXbw9UNhdcJfom2nnbB.AbNpkRbGoTfruF0gB',
@@ -159,12 +163,7 @@ class AsyncClubClient(AsyncAIOClient):
                 login_url = f"{self.config['api_base']}oauth2/authorize?{urlencode(auth_params)}"
 
                 async with async_playwright() as p:
-                    launch_kwargs: Dict[str, Any] = {'headless': True}
-                    if self.browser_executable:
-                        launch_kwargs['executable_path'] = self.browser_executable
-                    if self.browser_args:
-                        launch_kwargs['args'] = self.browser_args
-                    browser = await p.chromium.launch(**launch_kwargs)
+                    browser = await p.chromium.launch(**self._browser_launch_kwargs())
                     page = await browser.new_page()
 
                     async def block_heavy_resources(route):
@@ -243,6 +242,103 @@ class AsyncClubClient(AsyncAIOClient):
                 logger.error(f"Login failed: {e}")
                 raise RuntimeError(f"Failed to login: {e}")
 
+    def _browser_launch_kwargs(self) -> Dict[str, Any]:
+        """Builds the Playwright Chromium launch options from the client settings."""
+        launch_kwargs: Dict[str, Any] = {'headless': True}
+        if self.browser_executable:
+            launch_kwargs['executable_path'] = self.browser_executable
+        if self.browser_args:
+            launch_kwargs['args'] = self.browser_args
+        return launch_kwargs
+
+    async def logout(self, timeout: int = 30000) -> bool:
+        """
+        Logs out of the Club and clears the local session.
+
+        Revokes the refresh token, opens the Club's logout page in Playwright and waits
+        for it to redirect, then clears the tokens, profile headers and session file.
+        The local state is cleared even if the server-side steps fail.
+
+        After logging out, the next request will log in again (unless auto_relogin is False).
+
+        Args:
+            timeout: How long to wait for the logout redirect, in milliseconds. Defaults to 30000.
+
+        Returns:
+            bool: True if the token was revoked (or there was none) and the logout page redirected.
+        """
+        logger.info("Logging out...")
+        success = True
+
+        # 1. Revoke the token so it can't be used again
+        token = self._refresh_token or self.session_token
+        if token:
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as revoke_client:
+                    response = await revoke_client.post(
+                        f"{self.config['api_base']}oauth2/revoke",
+                        data={'token': token}
+                    )
+                if response.status_code == 200:
+                    logger.info("Token revoked.")
+                else:
+                    logger.warning(f"Token revoke failed with status {response.status_code}.")
+                    success = False
+            except Exception as e:
+                logger.warning(f"Token revoke failed: {e}")
+                success = False
+
+        # 2. Visit the logout page. It redirects back to the app, or sometimes to salesforce.com
+        def is_logged_out(url: str) -> bool:
+            parsed = urlparse(url)
+            host = parsed.hostname or ''
+            if host == 'app.adventuresinodyssey.com':
+                return not parsed.path.startswith('/logout')
+            return host == 'salesforce.com' or host.endswith('.salesforce.com')
+
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(**self._browser_launch_kwargs())
+                page = await browser.new_page()
+                await page.goto(self.config['logout_url'])
+                await page.wait_for_url(is_logged_out, timeout=timeout)
+                logger.info(f"Logout page redirected to {page.url}")
+                await browser.close()
+        except Exception as e:
+            logger.warning(f"Logout page did not redirect: {e}")
+            success = False
+
+        # 3. Clear local state
+        self._clear_local_state()
+        logger.info("Logged out.")
+        return success
+
+    def _clear_local_state(self):
+        """Forgets tokens and the selected profile, and deletes the session file."""
+        self._refresh_token = None
+        self.session_token = None
+        self.viewer_id, self.profile_username, self.pin = self._initial_profile
+        self._default_headers.pop('Authorization', None)
+        if self._client is not None:
+            self._client.headers.pop('Authorization', None)
+        self._set_profile_headers()
+        self.state = "logged out"
+
+        try:
+            self.config_file.unlink(missing_ok=True)
+            logger.info(f"Deleted session file {self.config_file}")
+        except Exception as e:
+            logger.error(f"Failed to delete session file: {e}")
+
+    def _set_profile_headers(self):
+        """Applies the current viewer_id and pin to the request headers."""
+        profile_headers = {
+            'x-viewer-id': self.viewer_id if self.viewer_id else '',
+            'x-pin': self.pin,
+        }
+        self._default_headers.update(profile_headers)
+        self._get_client().headers.update(profile_headers)
+
     def _update_auth_header(self):
         """Update the Authorization header on the shared client."""
         client = self._get_client()
@@ -255,8 +351,10 @@ class AsyncClubClient(AsyncAIOClient):
             return
 
         state = {
+            'email': self.email,
             'refresh_token': self._refresh_token,
             'viewer_id': self.viewer_id,
+            'profile_username': self.profile_username,
             'pin': self.pin
         }
 
@@ -276,12 +374,26 @@ class AsyncClubClient(AsyncAIOClient):
             with self.config_file.open('r', encoding='utf-8') as f:
                 state = json.load(f)
 
+            # Ignore sessions saved for a different account.
+            # (Files from older versions have no email, so they are trusted.)
+            saved_email = state.get('email')
+            if saved_email and saved_email.strip().lower() != self.email.strip().lower():
+                logger.info("Saved session belongs to a different account. Ignoring it.")
+                return False
+
             self._refresh_token = state.get('refresh_token')
+            saved_viewer_id = state.get('viewer_id')
 
+            # Only reuse the saved profile if the user didn't ask for a different one.
+            # A user-supplied viewer_id always wins; a user-supplied profile_username
+            # must match the one the saved profile was selected with.
             if self.viewer_id is None:
-                self.viewer_id = state.get('viewer_id')
+                if self.profile_username is None or self.profile_username == state.get('profile_username'):
+                    self.viewer_id = saved_viewer_id
+                else:
+                    logger.info(f"Saved profile doesn't match profile_username '{self.profile_username}'. It will be selected again.")
 
-            if self.pin == "0000" and state.get('pin'):
+            if self.pin == "0000" and self.viewer_id == saved_viewer_id and state.get('pin'):
                 self.pin = state.get('pin')
 
             if self._refresh_token:
@@ -428,6 +540,8 @@ class AsyncClubClient(AsyncAIOClient):
 
                     self._update_auth_header()
                     logger.info("Token refresh successful!")
+                    # Persist the (possibly rotated) refresh token
+                    self._save_session_state()
                     return True
                 else:
                     logger.warning(f"Token refresh failed with status {response.status_code}. Full login will be required.")
@@ -485,6 +599,12 @@ class AsyncClubClient(AsyncAIOClient):
 
         logger.info("Session invalid, attempting refresh...")
         if await self.refresh_session():
+            # A refreshed session may not have a profile yet (e.g. the saved one didn't match)
+            if not self._get_client().headers.get('x-viewer-id'):
+                if not await self._select_profile_and_set_headers():
+                    return False
+                self._save_session_state()
+            self.state = "ready"
             return True
 
         if self.config['auto_relogin']:
@@ -494,31 +614,92 @@ class AsyncClubClient(AsyncAIOClient):
             logger.warning("Refresh failed. Automatic full login is disabled.")
             return False
 
-    async def change_profile(self, viewer_id: str, pin: str) -> bool:
+    async def change_profile(self, viewer_id: str, pin: Optional[str] = None) -> bool:
         """
         Switches the active profile (viewer) for authenticated requests without
-        requiring a full web login, as long as the session token is still valid.
+        a full web login. Logs in first if needed.
+
+        This updates the 'x-viewer-id' and 'x-pin' headers for all subsequent API calls,
+        and saves the new profile to the session file.
 
         Args:
             viewer_id: The ID of the profile to switch to.
-            pin: The PIN associated with the new profile.
+            pin: The PIN for the new profile. Only needed if the profile has one.
 
         Returns:
-            bool: True if the profile was successfully switched and headers updated.
+            bool: True if the profile was switched, False if not logged in, the profile
+                  doesn't exist on this account, or it needs a PIN that wasn't given.
         """
-        if self.state != "authenticated":
-            logger.warning("Attempted to change profile on an unauthenticated client. Please login first.")
+        if not await self.ensure_authenticated():
+            logger.warning("Cannot change profile: client is not authenticated.")
+            return False
+
+        profiles = await self._fetch_viewer_profiles()
+        profile = next((p for p in profiles if p.get('viewer_id') == viewer_id), None)
+        if profile is None:
+            logger.error(f"Cannot change profile: no profile with Viewer ID '{viewer_id}' on this account.")
+            return False
+
+        pin = pin if pin is not None else "0000"
+        if profile.get('hasPIN', False) and pin == "0000":
+            logger.error(f"Cannot change profile: profile '{profile.get('username')}' requires a PIN.")
             return False
 
         logger.info(f"Switching active profile to ID: {viewer_id}...")
 
         self.viewer_id = viewer_id
+        self.profile_username = profile.get('username')
         self.pin = pin
-        client = self._get_client()
-        client.headers['x-viewer-id'] = self.viewer_id
-        client.headers['x-pin'] = self.pin
+        self._set_profile_headers()
+        self._save_session_state()
 
-        logger.info("Profile successfully switched. Headers updated.")
+        logger.info(f"Profile switched to '{self.profile_username}'. Headers updated.")
+        return True
+
+    async def check_pin(self, viewer_id: Optional[str] = None, pin: Optional[str] = None) -> bool:
+        """
+        Checks whether a PIN is correct for a profile.
+
+        Note that the server accepts any PIN for profiles that don't have one,
+        and doesn't check that the viewer ID exists.
+
+        Args:
+            viewer_id: The profile to check. Defaults to the current profile.
+            pin: The PIN to check. Defaults to the current PIN.
+
+        Returns:
+            bool: True if the PIN is correct (HTTP 204), False if it's incorrect (HTTP 403).
+
+        Raises:
+            RuntimeError: If the client can't authenticate.
+            httpx.HTTPStatusError: If the API returns any other error.
+        """
+        viewer_id = viewer_id if viewer_id is not None else self.viewer_id
+        pin = pin if pin is not None else self.pin
+
+        if not await self.ensure_authenticated():
+            raise RuntimeError("Cannot check PIN: Failed to authenticate user.")
+
+        url = f"{self.config['api_base']}{API_PREFIX}viewer/verifyPIN"
+
+        async def make_request():
+            headers = {'x-viewer-id': viewer_id or '', 'x-pin': pin}
+            return await self._get_client().get(url, headers=headers, timeout=self.timeout)
+
+        logger.info(f"Checking PIN for Viewer ID: {viewer_id}")
+        response = await make_request()
+
+        if response.status_code == 401:
+            logger.warning("PIN check failed with 401 Unauthorized. Attempting re-authentication...")
+            if await self.ensure_authenticated():
+                response = await make_request()
+
+        if response.status_code == 403:
+            logger.info("PIN is incorrect.")
+            return False
+
+        response.raise_for_status()
+        logger.info("PIN is correct.")
         return True
 
     async def fetch_content(self, content_id: str, page_type: str = 'full') -> Dict[str, Any]:
@@ -912,7 +1093,7 @@ class AsyncClubClient(AsyncAIOClient):
         image_url: str = "",
         content_ids: List[str] = None,
         playlist_json: Dict[str, Any] = None
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         Creates a new content grouping (playlist).
 
@@ -924,7 +1105,8 @@ class AsyncClubClient(AsyncAIOClient):
                                             If provided, other arguments are ignored.
 
         Returns:
-            str: The ID of the newly created playlist.
+            Dict[str, Any]: The API response. The new playlist's ID is at
+                            response['contentGroupings'][0]['id'].
         """
         if playlist_json:
             logger.info("Creating playlist using provided custom JSON payload.")

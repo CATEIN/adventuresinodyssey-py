@@ -1,93 +1,96 @@
 # Comments
 
-Comments can be viewed on [Content](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/content.md#content) and [Content Groups](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/groupings.md#content-group).
-Comments can be posted if `enable_commenting` is true. Available for [ClubClient](https://github.com/CATEIN/adventuresinodyssey-py/blob/main/docs/clubclient.md) only.
+Everything on this page needs a [`ClubClient`](clubclient.md). Comments are posted as the logged-in [profile](clubclient.md#choosing-a-profile).
 
-# related_id
-`related_id` serves as the parent container or location identifier that links comments to a specific piece of content, content group, or root comment.
+Comments can be attached to [content pages](content.md) and [content groups](groupings.md) that have `enable_commenting` set to `True`. Replies are comments attached to another comment.
 
-# Get Comments
+## related_id
 
-Comments can be fetched by `related_id` with `fetch_comments()`:
+Most comment methods take a `related_id`: the ID of the thing the comment belongs to.
+
+* For a comment on a page, it's the page's ID (content or content group).
+* For a reply, it's the ID of the comment being replied to.
+
+## Reading comments
+
+`fetch_comments(related_id)` returns a page of comments, newest first. Each comment includes its replies:
 
 ```python
-import os
-from dotenv import load_dotenv
-from adventuresinodyssey import ClubClient
-
-load_dotenv()
-# Enables ANSI colors on older Windows terminals
-os.system("")
-
-client = ClubClient(
-    email=os.getenv("AIO_EMAIL"),
-    password=os.getenv("AIO_PASSWORD"),
-    viewer_id=os.getenv("AIO_VIEWER_ID"),
-    pin=os.getenv("AIO_PIN"),
-)
-
 corner_booth_id = "a35Up000000Qn9xIAC"
-BOLD = "\033[1m"
-RESET = "\033[0m"
 
-comments = client.fetch_comments(
-    related_id=corner_booth_id, page_number=2, page_size=10
-)
+page = client.fetch_comments(related_id=corner_booth_id, page_number=1, page_size=10)
 
-for comment in comments["comments"]:
-    print(f"\n● {BOLD}{comment['userName']}{RESET}")
-    print(f"  {comment['message']}")
-
+for comment in page["comments"]:
+    print(f"● {comment['userName']}: {comment['message']}")
     for reply in comment.get("comments", []):
-        print(f"  └── {BOLD}{reply['userName']}{RESET}: {reply['message']}")
-```
-
-# Get a Comment
-
-A single comment can be fetched by `comment_id` with `fetch_comment()`. For replies to show up, `related_id` must also be given (`related_id` is the page the comment was posted to. If the comment is a reply, the `related_id` is the original comment's `id`). This is useful for checking if a comment was approved or has replies:
-
-```python
-import os
-from dotenv import load_dotenv
-from adventuresinodyssey import ClubClient
-
-load_dotenv()
-
-client = ClubClient(
-    email=os.getenv("AIO_EMAIL"),
-    password=os.getenv("AIO_PASSWORD"),
-    viewer_id=os.getenv("AIO_VIEWER_ID"),
-    pin=os.getenv("AIO_PIN"),
-)
-
-comment_id = "a2wUp000006bvQTIAY"
-corner_booth_id = "a35Up000000Qn9xIAC"
-
-comment_data = client.fetch_comment(comment_id=comment_id, related_id=corner_booth_id)
-
-for main_comment in comment_data.get("comments", []):
-    # Print the parent comment details
-    print(f"Status: {main_comment.get('status')}")
-    print(f"● {main_comment['userName']}: {main_comment['message']}")
-
-    # Loop through the nested replies (only avalible if related_id is given)
-    for reply in main_comment.get("comments", []):
         print(f"  └── {reply['userName']}: {reply['message']}")
 ```
 
-# Post a comment
+| Argument | Default | Description |
+| --- | --- | --- |
+| `related_id` | `None` | Page or comment ID. Leave it out to get the latest comments from the whole site. |
+| `page_number` | `1` | |
+| `page_size` | `10` | |
+| `order_by` | `"CreatedDate DESC"` | Sort order. `"CreatedDate ASC"` gives oldest first. |
 
-A comment can be posted with `post_comment(message, related_id)`. Comments `message` length must be under 255 characters.
-> [!IMPORTANT]  
-> Only use `post_comment()` for a new comment, not a reply.
+### Comment fields
 
+| Field | Description |
+| --- | --- |
+| `id` | Comment ID. |
+| `userName` | Who posted it. |
+| `message` | The text. |
+| `status` | Moderation status. New comments must be approved before others can see them. |
+| `comments` | Replies (a list of comments). |
+| `relatedToId`, `relatedToName`, `relatedToObject` | What it was posted on. `relatedToObject` is `"Comment"` for replies. |
+| `inReplyToCommentId` | For replies, the parent comment's ID. |
 
-# Post a reply
+## Reading one comment
 
-A reply to a comment can be posted with `post_reply(message, related_id)`. Replies `message` length must be under 255 characters.
+`fetch_comment(comment_id, related_id)` fetches a single comment. This is handy for checking whether your comment has been approved yet:
 
-# Delete a comment
+```python
+comment_id = "a2wUp000006bvQTIAY"
+corner_booth_id = "a35Up000000Qn9xIAC"
 
-`delete_comment(comment_id)`
+result = client.fetch_comment(comment_id=comment_id, related_id=corner_booth_id)
 
+for comment in result["comments"]:
+    print("Status:", comment["status"])
+    print(f"● {comment['userName']}: {comment['message']}")
+    for reply in comment.get("comments", []):
+        print(f"  └── {reply['userName']}: {reply['message']}")
+```
 
+Replies are only included if you pass `related_id` (the page the comment is on, or the parent comment's ID for a reply).
+
+## Posting
+
+```python
+# Comment on a page
+response = client.post_comment("What a great episode!", related_id=corner_booth_id)
+
+# Reply to a comment
+client.post_reply("I agree!", related_id=comment_id)
+```
+
+* Messages must be **under 255 characters**. See [comment_with_replies.py](../examples/comment_with_replies.py) for a way to post longer text.
+* New comments are moderated, so they won't appear for others until approved.
+* Please follow the Club's community guidelines, and don't spam.
+
+## Deleting
+
+```python
+client.delete_comment(comment_id)
+```
+
+## Finding active pages
+
+`find_comment_pages()` looks at the 100 most recent comments on the site and returns the pages they were posted on, most active first:
+
+```python
+for page in client.find_comment_pages():
+    print(page["comment_count"], page["page_type"], page["name"], page["id"])
+```
+
+Replies are counted toward the page their thread is on. Each result has `id`, `name`, `page_type` (e.g. `"Content__c"`) and `comment_count`.

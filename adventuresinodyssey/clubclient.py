@@ -68,7 +68,10 @@ class ClubClient(AIOClient):
         self.viewer_id = viewer_id # User-provided ID, or None if derived from profile_username
         self.profile_username = profile_username
         self.pin = pin if pin is not None else "0000"
-        
+
+        # Remember what the user passed in, so logout() can restore it
+        self._initial_profile = (self.viewer_id, self.profile_username, self.pin)
+
         # Session tokens
         self._refresh_token: Optional[str] = None
         self.session_token: Optional[str] = None
@@ -81,6 +84,7 @@ class ClubClient(AIOClient):
         self.config = {
             'api_base': 'https://fotf.my.site.com/aio/services/', 
             'redirect_url': 'https://app.adventuresinodyssey.com/callback',
+            'logout_url': 'https://app.adventuresinodyssey.com/logout',
             'oauth_url': 'https://auth.focusonthefamily.com',
             'api_version': 'v1',
             'client_id': '3MVG9l2zHsylwlpTFc1ZB3ryOQlpLYIqNo0UV4d0lBRjkbb6TXbw9UNhdcJfom2nnbB.AbNpkRbGoTfruF0gB',
@@ -135,12 +139,7 @@ class ClubClient(AIOClient):
             login_url = f"{self.config['api_base']}oauth2/authorize?{urlencode(auth_params)}"
             
             with sync_playwright() as p:
-                launch_kwargs: Dict[str, Any] = {'headless': True}
-                if self.browser_executable:
-                    launch_kwargs['executable_path'] = self.browser_executable
-                if self.browser_args:
-                    launch_kwargs['args'] = self.browser_args
-                browser = p.chromium.launch(**launch_kwargs)
+                browser = p.chromium.launch(**self._browser_launch_kwargs())
                 page = browser.new_page()
                 def block_heavy_resources(route):
                     # types to block: 'image', 'stylesheet', 'font', 'media'
@@ -219,7 +218,94 @@ class ClubClient(AIOClient):
             logger.error(f"Login failed: {e}")
             # Raise RuntimeError to be caught by calling function
             raise RuntimeError(f"Failed to login: {e}")
-        
+
+    def _browser_launch_kwargs(self) -> Dict[str, Any]:
+        """Builds the Playwright Chromium launch options from the client settings."""
+        launch_kwargs: Dict[str, Any] = {'headless': True}
+        if self.browser_executable:
+            launch_kwargs['executable_path'] = self.browser_executable
+        if self.browser_args:
+            launch_kwargs['args'] = self.browser_args
+        return launch_kwargs
+
+    def logout(self, timeout: int = 30000) -> bool:
+        """
+        Logs out of the Club and clears the local session.
+
+        Revokes the refresh token, opens the Club's logout page in Playwright and waits
+        for it to redirect, then clears the tokens, profile headers and session file.
+        The local state is cleared even if the server-side steps fail.
+
+        After logging out, the next request will log in again (unless auto_relogin is False).
+
+        Args:
+            timeout: How long to wait for the logout redirect, in milliseconds. Defaults to 30000.
+
+        Returns:
+            bool: True if the token was revoked (or there was none) and the logout page redirected.
+        """
+        logger.info("Logging out...")
+        success = True
+
+        # 1. Revoke the token so it can't be used again
+        token = self._refresh_token or self.session_token
+        if token:
+            try:
+                response = requests.post(
+                    f"{self.config['api_base']}oauth2/revoke",
+                    data={'token': token},
+                    timeout=self.timeout
+                )
+                if response.status_code == 200:
+                    logger.info("Token revoked.")
+                else:
+                    logger.warning(f"Token revoke failed with status {response.status_code}.")
+                    success = False
+            except Exception as e:
+                logger.warning(f"Token revoke failed: {e}")
+                success = False
+
+        # 2. Visit the logout page. It redirects back to the app, or sometimes to salesforce.com
+        def is_logged_out(url: str) -> bool:
+            parsed = urlparse(url)
+            host = parsed.hostname or ''
+            if host == 'app.adventuresinodyssey.com':
+                return not parsed.path.startswith('/logout')
+            return host == 'salesforce.com' or host.endswith('.salesforce.com')
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(**self._browser_launch_kwargs())
+                page = browser.new_page()
+                page.goto(self.config['logout_url'])
+                page.wait_for_url(is_logged_out, timeout=timeout)
+                logger.info(f"Logout page redirected to {page.url}")
+                browser.close()
+        except Exception as e:
+            logger.warning(f"Logout page did not redirect: {e}")
+            success = False
+
+        # 3. Clear local state
+        self._clear_local_state()
+        logger.info("Logged out.")
+        return success
+
+    def _clear_local_state(self):
+        """Forgets tokens and the selected profile, and deletes the session file."""
+        self._refresh_token = None
+        self.session_token = None
+        self.viewer_id, self.profile_username, self.pin = self._initial_profile
+        self.session.headers.pop('Authorization', None)
+        self.session.headers['x-viewer-id'] = self.viewer_id if self.viewer_id else ''
+        self.session.headers['x-pin'] = self.pin
+        self.state = "logged out"
+
+        try:
+            self.config_file.unlink(missing_ok=True)
+            logger.info(f"Deleted session file {self.config_file}")
+        except Exception as e:
+            logger.error(f"Failed to delete session file: {e}")
+
     def _exchange_code_for_token(self, auth_code: str, code_verifier: str) -> Dict[str, Any]:
         """Exchange authorization code for access and refresh tokens."""
         token_url = f"{self.config['api_base']}oauth2/token"
@@ -244,9 +330,11 @@ class ClubClient(AIOClient):
             return
 
         state = {
+            'email': self.email,
             'refresh_token': self._refresh_token,
             'viewer_id': self.viewer_id,
-            'pin': self.pin 
+            'profile_username': self.profile_username,
+            'pin': self.pin
         }
         
         try:
@@ -265,21 +353,31 @@ class ClubClient(AIOClient):
             with self.config_file.open('r', encoding='utf-8') as f:
                 state = json.load(f)
 
-            # 1. ALWAYS load the refresh token (this is the core of persistence)
+            # 1. Ignore sessions saved for a different account.
+            # (Files from older versions have no email, so they are trusted.)
+            saved_email = state.get('email')
+            if saved_email and saved_email.strip().lower() != self.email.strip().lower():
+                logger.info("Saved session belongs to a different account. Ignoring it.")
+                return False
+
+            # 2. Load the refresh token (this is the core of persistence)
             self._refresh_token = state.get('refresh_token')
-            
-            # 2. CONDITIONALLY load profile parameters
-            
-            # The viewer_id is only None if the user did NOT pass it to the constructor.
-            # If the user supplied a viewer_id, we keep that new value.
+
+            # 3. CONDITIONALLY load profile parameters
+            saved_viewer_id = state.get('viewer_id')
+
+            # Only reuse the saved profile if the user didn't ask for a different one.
+            # A user-supplied viewer_id always wins; a user-supplied profile_username
+            # must match the one the saved profile was selected with.
             if self.viewer_id is None:
-                self.viewer_id = state.get('viewer_id')
-                
-            # The pin defaults to "0000". If the user did NOT supply a pin 
-            # (and it's currently "0000"), and the file has one, load the file's pin.
-            # If the user supplied a custom pin (e.g., "1234"), we keep "1234".
-            # This assumes the original value of self.pin is only "0000" if no pin was supplied.
-            if self.pin == "0000" and state.get('pin'): 
+                if self.profile_username is None or self.profile_username == state.get('profile_username'):
+                    self.viewer_id = saved_viewer_id
+                else:
+                    logger.info(f"Saved profile doesn't match profile_username '{self.profile_username}'. It will be selected again.")
+
+            # The pin defaults to "0000". If the user did NOT supply a pin and we're
+            # using the saved profile, load the saved pin.
+            if self.pin == "0000" and self.viewer_id == saved_viewer_id and state.get('pin'):
                 self.pin = state.get('pin')
             
             # Since the session token is short-lived, we *MUST* immediately try to refresh
@@ -425,6 +523,8 @@ class ClubClient(AIOClient):
                 
                 self.session.headers['Authorization'] = f"Bearer {self.session_token}"
                 logger.info("Token refresh successful!")
+                # Persist the (possibly rotated) refresh token
+                self._save_session_state()
                 return True
             else:
                 logger.warning(f"Token refresh failed with status {response.status_code}. Full login will be required.")
@@ -484,6 +584,12 @@ class ClubClient(AIOClient):
         # 2. Try to refresh session
         logger.info("Session invalid, attempting refresh...")
         if self.refresh_session():
+            # A refreshed session may not have a profile yet (e.g. the saved one didn't match)
+            if not self.session.headers.get('x-viewer-id'):
+                if not self._select_profile_and_set_headers():
+                    return False
+                self._save_session_state()
+            self.state = "ready"
             return True
         
         # 3. Fall back to full login (Only if enabled)
@@ -494,32 +600,94 @@ class ClubClient(AIOClient):
             logger.warning("Refresh failed. Automatic full login is disabled.")
             return False # Return False if we can't refresh and can't relogin
     
-    def change_profile(self, viewer_id: str, pin: str) -> bool:
+    def change_profile(self, viewer_id: str, pin: Optional[str] = None) -> bool:
         """
         Switches the active profile (viewer) for authenticated requests without
-        requiring a full web login, as long as the session token is still valid.
-        
-        This updates the 'x-viewer-id' and 'x-pin' headers for all subsequent API calls.
-        
+        a full web login. Logs in first if needed.
+
+        This updates the 'x-viewer-id' and 'x-pin' headers for all subsequent API calls,
+        and saves the new profile to the session file.
+
         Args:
             viewer_id: The ID of the profile to switch to.
-            pin: The PIN associated with the new profile.
-            
+            pin: The PIN for the new profile. Only needed if the profile has one.
+
         Returns:
-            bool: True if the profile was successfully switched and headers updated.
+            bool: True if the profile was switched, False if not logged in, the profile
+                  doesn't exist on this account, or it needs a PIN that wasn't given.
         """
-        if self.state != "authenticated":
-            logger.warning("Attempted to change profile on an unauthenticated client. Please login first.")
+        if not self.ensure_authenticated():
+            logger.warning("Cannot change profile: client is not authenticated.")
             return False
-            
+
+        profiles = self._fetch_viewer_profiles()
+        profile = next((p for p in profiles if p.get('viewer_id') == viewer_id), None)
+        if profile is None:
+            logger.error(f"Cannot change profile: no profile with Viewer ID '{viewer_id}' on this account.")
+            return False
+
+        pin = pin if pin is not None else "0000"
+        if profile.get('hasPIN', False) and pin == "0000":
+            logger.error(f"Cannot change profile: profile '{profile.get('username')}' requires a PIN.")
+            return False
+
         logger.info(f"Switching active profile to ID: {viewer_id}...")
-        
+
         self.viewer_id = viewer_id
+        self.profile_username = profile.get('username')
         self.pin = pin
         self.session.headers['x-viewer-id'] = self.viewer_id
         self.session.headers['x-pin'] = self.pin
-        
-        logger.info("Profile successfully switched. Headers updated.")
+        self._save_session_state()
+
+        logger.info(f"Profile switched to '{self.profile_username}'. Headers updated.")
+        return True
+
+    def check_pin(self, viewer_id: Optional[str] = None, pin: Optional[str] = None) -> bool:
+        """
+        Checks whether a PIN is correct for a profile.
+
+        Note that the server accepts any PIN for profiles that don't have one,
+        and doesn't check that the viewer ID exists.
+
+        Args:
+            viewer_id: The profile to check. Defaults to the current profile.
+            pin: The PIN to check. Defaults to the current PIN.
+
+        Returns:
+            bool: True if the PIN is correct (HTTP 204), False if it's incorrect (HTTP 403).
+
+        Raises:
+            RuntimeError: If the client can't authenticate.
+            requests.exceptions.HTTPError: If the API returns any other error.
+        """
+        viewer_id = viewer_id if viewer_id is not None else self.viewer_id
+        pin = pin if pin is not None else self.pin
+
+        if not self.ensure_authenticated():
+            raise RuntimeError("Cannot check PIN: Failed to authenticate user.")
+
+        url = f"{self.config['api_base']}{API_PREFIX}viewer/verifyPIN"
+
+        def make_request():
+            headers = self.session.headers.copy()
+            headers.update({'x-viewer-id': viewer_id or '', 'x-pin': pin})
+            return self.session.get(url, headers=headers, timeout=self.timeout)
+
+        logger.info(f"Checking PIN for Viewer ID: {viewer_id}")
+        response = make_request()
+
+        if response.status_code == 401:
+            logger.warning("PIN check failed with 401 Unauthorized. Attempting re-authentication...")
+            if self.ensure_authenticated():
+                response = make_request()
+
+        if response.status_code == 403:
+            logger.info("PIN is incorrect.")
+            return False
+
+        response.raise_for_status()
+        logger.info("PIN is correct.")
         return True
 
     def fetch_content(self, content_id: str, page_type: str = 'full') -> Dict[str, Any]:
@@ -962,7 +1130,7 @@ class ClubClient(AIOClient):
         image_url: str = "", 
         content_ids: List[str] = None,
         playlist_json: Dict[str, Any] = None
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         Creates a new content grouping (playlist).
 
@@ -974,7 +1142,8 @@ class ClubClient(AIOClient):
                                             If provided, other arguments are ignored.
 
         Returns:
-            str: The ID of the newly created playlist.
+            Dict[str, Any]: The API response. The new playlist's ID is at
+                            response['contentGroupings'][0]['id'].
         """
         
         # --- Determine Payload ---

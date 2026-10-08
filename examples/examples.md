@@ -1,65 +1,46 @@
 # Example programs
 
-# AIOClient
+Complete programs that use the library. Install the package first (`pip install adventuresinodyssey`), plus any extra packages each example lists.
 
-## [bedtime.py](/examples/bedtime.py)
-Plays the newest radio episode every night at 8:00. Requires `mpv` and `schedule`
-
-```bash
-pip install mpv
-```
-
-```bash
-pip install schedule
-```
-
-*windows users have to add mpv to PATH.
-
-## [promotrivia.py](/examples/promotrivia.py)
-A simple trivia game where the user guesses the name of an episode based on promo being played. Requires `mpv`
+Several examples play audio with [mpv](https://mpv.io/). You need both the mpv program and its Python bindings:
 
 ```bash
 pip install mpv
 ```
 
-*windows users have to add mpv to PATH.
+On Windows, download mpv and add its folder to your `PATH` (or put `libmpv-2.dll` next to the script).
 
-## [thumbnail.py](/examples/thumbnail.py)
-Download the thumbnail for a content page.
+## No account needed (AIOClient)
 
-Usage:
+| Example | What it does | Extra packages |
+| --- | --- | --- |
+| [bedtime.py](bedtime.py) | Plays the newest radio episode every night at 8:00. | `mpv`, `schedule` |
+| [promotrivia.py](promotrivia.py) | Trivia game: guess the episode from its promo. | `mpv` |
+| [thumbnail.py](thumbnail.py) | Downloads the thumbnail for a content page. | |
 
-```bash
-python thumbnail.py content_url_here
-```
-(make sure the url is a content url! https://app.adventuresinodyssey.com/content/... )
-
-# ClubClient
-
-These programs require `python-dotenv` and .env file like:
+Run `thumbnail.py` with a content URL:
 
 ```bash
-AIO_EMAIL=email_here
-AIO_PASSWORD=password_here
-AIO_VIEWER_ID=profile_id_here
-AIO_PIN=pin_here_or_0000
-# not as good
-AIO_PROFILE_USERNAME=username_here
+python thumbnail.py https://app.adventuresinodyssey.com/content/a354W0000046U7kQAE
 ```
 
-## [player.py](/examples/player.py)
+## Club account needed (ClubClient)
 
-A simple player in the terminal with a queue system. It caches episode metadata for faster audio loading. Reqiures `mpv` and `textual`
+| Example | What it does | Extra packages |
+| --- | --- | --- |
+| [player.py](player.py) | A terminal music player with a queue. Caches episode metadata so audio loads faster. | `mpv`, `textual` |
+| [comment_with_replies.py](comment_with_replies.py) | Posts text longer than the 255-character limit by splitting it into a comment plus replies. Moderators may not approve every reply. | |
 
+These read your login from a `.env` file in the same folder (`pip install python-dotenv`):
 
 ```bash
-pip install mpv
+AIO_EMAIL=you@example.com
+AIO_PASSWORD=your_password
+AIO_VIEWER_ID=your_profile_id    # see "Finding your viewer ID" in the ClubClient docs
+AIO_PIN=1234                     # or 0000 if the profile has no PIN
+
+# Alternative to AIO_VIEWER_ID (slower):
+AIO_PROFILE_USERNAME=your_profile_username
 ```
 
-```bash
-pip install textual
-```
-*windows users have to add mpv to PATH.
-
-## [comment_with_replies.py](/examples/comment_with_replies.py)
-Post comments past the 255 character limit by replying to your original comment. (Note that Club moderators may not approve all posted replies)
+Don't commit `.env` or `club_session.json` to git. See [ClubClient → Finding your viewer ID](../docs/clubclient.md#finding-your-viewer-id).

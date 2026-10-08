@@ -321,10 +321,12 @@ class AIOClient:
         if grouping_type == "Themes":
             logger.info("Generating theme-based groupings from album episode tags...")
             themes_map = {}
+            # Grouping content lists don't include tags, so look them up separately
+            tags_by_id = self._fetch_content_tags()
 
             for grouping in all_groupings:
                 for episode in grouping.get("contentList", []):
-                    for tag in episode.get("tags", []):
+                    for tag in episode.get("tags") or tags_by_id.get(episode.get("id"), []):
                         topic_id = tag.get("topic_id")
                         if not topic_id:
                             continue
@@ -399,12 +401,14 @@ class AIOClient:
                 # Use a dict to group episodes by theme name/ID
                 # Key: topic_id, Value: Theme Grouping Dict
                 themes_map = {}
+                # Grouping content lists don't include tags, so look them up separately
+                tags_by_id = self._fetch_content_tags()
 
                 for grouping in all_groupings:
                     # We only look inside the contentList of existing groupings
                     content_list = grouping.get("contentList", [])
                     for episode in content_list:
-                        tags = episode.get("tags", [])
+                        tags = episode.get("tags") or tags_by_id.get(episode.get("id"), [])
                         for tag in tags:
                             topic_id = tag.get("topic_id")
                             theme_name = tag.get("name")
@@ -451,6 +455,45 @@ class AIOClient:
             logger.info(f"Successfully cached {len(all_groupings)} total groupings.")
             return all_groupings
     
+    def _fetch_content_tags(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Fetches the theme tags for all audio content via the search endpoint,
+        which (unlike content grouping lists) includes tags when 'tag=true'.
+
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: A mapping of content ID to its list of tags.
+        """
+        logger.info("Fetching tags for all audio content.")
+
+        tags_by_id = {}
+        current_page = 1
+        total_pages = 1
+        page_size = 200
+
+        while current_page <= total_pages:
+            response = self.get(
+                "content/search",
+                params={
+                    "content_type": "Audio",
+                    "community": "Adventures In Odyssey",
+                    "tag": "true",
+                    "pagenum": current_page,
+                    "pagecount": page_size,
+                },
+            )
+
+            if current_page == 1:
+                total_pages = response.get('total_pages') or 1
+
+            for item in response.get('results', []):
+                if item.get('id') and item.get('tags'):
+                    tags_by_id[item['id']] = item['tags']
+
+            current_page += 1
+
+        logger.info(f"Found tags for {len(tags_by_id)} content items.")
+        return tags_by_id
+
     def cache_audiobooks(self) -> List[Dict[str, Any]]:
         """
         Retrieves all Audiobook content from the search endpoint and returns
