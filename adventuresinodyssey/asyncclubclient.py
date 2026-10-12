@@ -8,6 +8,7 @@ import base64
 import hashlib
 import secrets
 from pathlib import Path
+from datetime import datetime, timezone
 from collections import Counter
 from typing import Optional, Dict, Any, List, Union
 from urllib.parse import urlencode, urlparse, parse_qs
@@ -34,6 +35,23 @@ DEFAULT_FIELDS = {
     "Character__c": ["Name", "Thumbnail_Small__c"],
     "Badge__c": ["Name", "Icon__c", "Type__c"]
 }
+
+
+def _format_timestamp(timestamp: Optional[Union[datetime, str]] = None) -> str:
+    """
+    Formats a timestamp the way the Club's player sends it: UTC ISO 8601 with
+    milliseconds and a 'Z' suffix (e.g. '2026-10-09T21:37:54.956Z').
+
+    None means the current time. Naive datetimes are assumed to be UTC.
+    Strings are sent as-is.
+    """
+    if timestamp is None:
+        timestamp = datetime.now(timezone.utc)
+    if isinstance(timestamp, str):
+        return timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
 
 class AsyncClubClient(AsyncAIOClient):
@@ -776,6 +794,7 @@ class AsyncClubClient(AsyncAIOClient):
             progress: Optional[int] = None,
             status: str = "",
             devotional_complete: Optional[bool] = None,
+            timestamp: Optional[Union[datetime, str]] = None,
         ) -> Dict[str, Any]:
         """
         Sends playback progress, status, and/or devotional completion updates
@@ -784,13 +803,19 @@ class AsyncClubClient(AsyncAIOClient):
         Args:
             content_id: The ID of the content being updated.
             progress: The current playback position in seconds (optional).
-            status: The playback status, typically 'In Progress' or 'Completed'.
+            status: The playback status: 'New', 'In Progress' or 'Completed'.
                     Only included in the request if non-empty.
             devotional_complete: If provided, marks the associated devotional as
                                 complete (True) or incomplete (False). Optional.
+            timestamp: When this progress happened, as a datetime or ISO 8601 string.
+                       Defaults to now. The server skips updates older than the last
+                       one it saved, so out-of-order updates don't overwrite newer ones.
 
         Returns:
-            Dict[str, Any]: The parsed JSON response from the API.
+            Dict[str, Any]: The parsed JSON response from the API, e.g.
+                {"status": "Success", "progress": {...}, "error": None}.
+                If the update was skipped (an item that's already completed, or a
+                newer update already saved), "status" is "Error" and "error" says why.
 
         Raises:
             httpx.HTTPStatusError: If the API request fails after all retry attempts.
@@ -808,17 +833,22 @@ class AsyncClubClient(AsyncAIOClient):
         if devotional_complete is not None:
             request_payload["devotional_complete"] = devotional_complete
 
+        request_payload["timestamp"] = _format_timestamp(timestamp)
+
         log_info = f"ID: {content_id}"
         if status:
             log_info += f", Status: {status}"
         if progress is not None:
-            log_info += f", Progress: {progress}s"
+            log_info += f", Progress: {progress}ms"
         if devotional_complete is not None:
             log_info += f", Devotional Complete: {devotional_complete}"
 
         logger.info(f"Attempting to send progress update: ({log_info})")
 
-        return await self.put("content", request_payload)
+        response = await self.put("content", request_payload)
+        if isinstance(response, dict) and response.get("status") == "Error":
+            logger.warning(f"Progress update for {content_id} was not saved: {response.get('error')}")
+        return response
 
     async def fetch_random(self) -> Dict[str, Any]:
         """

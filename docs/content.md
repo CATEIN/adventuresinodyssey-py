@@ -89,15 +89,11 @@ These URLs are signed and expire after a while. This library gives you the metad
 `ClubClient` can update the current profile's progress on an item, just like the website's player:
 
 ```python
-client.update_content_status(
-    content_id="a354W0000046U7kQAE",
-    progress=300000,          # position in milliseconds (here, 5:00)
-    status="In Progress",
-)
+episode_id = "a354W0000046U7kQAE"
 
-client.update_content_status(content_id="a354W0000046U7kQAE", status="Completed")
-
-client.update_content_status(content_id="a354W0000046U7kQAE", devotional_complete=True)
+client.update_content_status(episode_id, progress=300000, status="In Progress")  # at 5:00
+client.update_content_status(episode_id, devotional_complete=True)
+client.update_content_status(episode_id, status="Completed")
 ```
 
 | Argument | Description |
@@ -106,8 +102,42 @@ client.update_content_status(content_id="a354W0000046U7kQAE", devotional_complet
 | `progress` | Playback position in **milliseconds**, as an `int`. |
 | `status` | `"New"`, `"In Progress"` or `"Completed"`. |
 | `devotional_complete` | `True` to mark the devotional as done. |
+| `timestamp` | When this progress happened: a `datetime` or an ISO 8601 string like `"2026-10-09T21:37:54.956Z"`. Defaults to now. Naive datetimes are treated as UTC. |
 
-Only the arguments you pass are sent. Saved progress shows up in `content["progress"]` the next time you fetch the page.
+Only `content_id`, `timestamp` and the arguments you pass are sent. Saved progress shows up in `content["progress"]` the next time you fetch the page.
+
+### The response
+
+```python
+{
+    "status": "Success",
+    "progress": {
+        "status": "In Progress",
+        "dismissed_help": False,
+        "devotional_complete": False,
+        "current_progress": 300000,
+        "content_activity_time_stamp": "2026-10-09T21:37:54.956Z"
+    },
+    "error": None
+}
+```
+
+### Skipped updates
+
+The server uses `timestamp` to keep updates in order, and sometimes **skips** an update. When that happens the request still succeeds (no exception), but `"status"` is `"Error"`, `"error"` says why, and `"progress"` shows what's saved. The client also logs a warning.
+
+| `error` | Why |
+| --- | --- |
+| `Skipped: A more recent "In Progress" update already exists.` | The `timestamp` is older than the last saved update, e.g. another device saved progress after this one. |
+| `Skipped: Activity is already complete.` | The item is already `"Completed"`. After that, updates to its progress, status and devotional are skipped, so set `devotional_complete` **before** completing. |
+
+```python
+result = client.update_content_status(episode_id, progress=120000, status="In Progress")
+if result["status"] != "Success":
+    print("Not saved:", result["error"])
+```
+
+Leave `timestamp` at its default unless you're replaying progress that happened earlier, such as syncing a listening log. Older items may show the status `"Complete"` instead of `"Completed"`.
 
 ## Random episode
 

@@ -99,7 +99,7 @@ Content can be fetched as a `promo`, `radio` or `full` page. They differ mainly 
 | --- | :---: | :---: | --- |
 | `fetch_content(content_id, page_type)` | ✅ | ✅ | One content page. `page_type` is `"promo"`, `"radio"` or `"full"` (Club only). Defaults: `"promo"` on AIOClient, `"full"` on ClubClient. [Docs](content.md) |
 | `fetch_random()` | | ✅ | A random episode. |
-| `update_content_status(content_id, progress, status, devotional_complete)` | | ✅ | Save listening progress (ms), status or devotional completion. [Docs](content.md#saving-listening-progress) |
+| `update_content_status(content_id, progress, status, devotional_complete, timestamp)` | | ✅ | Save listening progress (ms), status or devotional completion. Check the result: the server can skip updates. [Docs](content.md#saving-listening-progress) |
 | `fetch_signed_cookie(content_type)` | | ✅ | The current media signature, as a `?Policy=...` query string. `content_type` is `"audio"` or `"video"`. |
 
 ### Groupings
